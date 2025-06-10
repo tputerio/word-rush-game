@@ -63,7 +63,7 @@
         .timer-urgent { animation: pulse 1s infinite; }
     </style>
 </head>
-<body class="bg-slate-100 flex items-center justify-center min-h-screen">
+<body class="bg-slate-100 flex justify-center items-start md:items-center min-h-screen py-4">
 
 <div id="game-container" class="w-full max-w-sm mx-auto p-4">
     <div id="game-content">
@@ -165,10 +165,16 @@
         setTimeout(resizeCanvas, 0);
     }
     
-    function getRandomLetter() {
-        const useVowel = Math.random() < VOWEL_CHANCE;
+    function getRandomLetter(smart = false) {
+        // Use a higher vowel chance for smart replacements
+        const currentVowelChance = smart ? 0.55 : VOWEL_CHANCE;
+        const useVowel = Math.random() < currentVowelChance;
         const bag = (useVowel && vowelBag.length) ? vowelBag : (consonantBag.length ? consonantBag : null);
-        if (!bag) { createLetterBags(); return getRandomLetter(); }
+        if (!bag) { 
+            createLetterBags(); 
+            // Call again with the same smart flag
+            return getRandomLetter(smart); 
+        }
         return bag[Math.floor(Math.random() * bag.length)];
     }
 
@@ -203,6 +209,7 @@
 
         const lastSelected = selectedTiles[selectedTiles.length - 1];
         
+        // Handle backtracking
         if (selectedTiles.length > 1 && tile === selectedTiles[selectedTiles.length - 2]) {
             const lastTile = selectedTiles.pop();
             lastTile.classList.remove('selected');
@@ -238,7 +245,7 @@
 
     function replaceSelectedTiles() {
         selectedTiles.forEach(tile => {
-            const letter = getRandomLetter();
+            const letter = getRandomLetter(true); // Use smart replacement
             const points = letterConfig[letter].p;
             tile.dataset.letter = letter; 
             tile.dataset.points = points;
@@ -394,7 +401,7 @@
             tilePositions.push({
                 el: tile,
                 center: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
-                hitRadius: tile.offsetWidth * 0.4 // Tighter hit radius
+                hitRadius: tile.offsetWidth * 0.4 // Tighter hit radius for precision
             });
         }
     }
@@ -503,13 +510,13 @@
             if (placedSuccessfully) {
                 for (let i = 0; i < GRID_SIZE; i++) {
                     if (board[i] === null) {
-                        board[i] = getRandomLetter();
+                        board[i] = getRandomLetter(false);
                     }
                 }
                 return board;
             }
         }
-        return Array.from({ length: GRID_SIZE }, () => getRandomLetter());
+        return Array.from({ length: GRID_SIZE }, () => getRandomLetter(false));
     }
 
     function getWordsForBoard() {
@@ -532,7 +539,7 @@
 
         for (const startIndex of emptyIndices) {
             const path = [startIndex];
-            if (findPathRecursive(board, word, path, 1)) {
+            if (findPathRecursive(board, word, path)) {
                 return path;
             }
         }
@@ -559,7 +566,8 @@
         neighbors.sort(() => Math.random() - 0.5);
 
         for (const neighborPos of neighbors) {
-            if (!path.includes(neighborPos) && (board[neighborPos] === null || board[neighborPos] === word[path.length])) {
+            const nextChar = word[path.length];
+            if (!path.includes(neighborPos) && (board[neighborPos] === null || board[neighborPos] === nextChar)) {
                 path.push(neighborPos);
                 if (findPathRecursive(board, word, path)) {
                     return true;
