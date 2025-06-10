@@ -30,8 +30,8 @@
             font-size: 0.65rem;
             font-weight: 900;
             color: white;
-            padding: 0px 3px;
-            border-radius: 3px;
+            padding: 0px 4px;
+            border-radius: 4px;
         }
         .bonus-DL { background-color: #3b82f6 !important; } /* Blue */
         .bonus-TL { background-color: #ef4444 !important; } /* Red */
@@ -56,6 +56,7 @@
         }
         .current-letter { animation: pop-in 0.2s ease-out; }
         .modal-enter { animation: pop-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+        .new-high-score-enter { animation: pop-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
 
     </style>
 </head>
@@ -78,13 +79,20 @@
                 <span>Word Rush</span>
             </h1>
         </div>
-        <div class="grid grid-cols-3 items-center text-center bg-white rounded-xl shadow-lg p-3 mb-4">
-            <div>
-                <!-- Future use, like a pause button -->
-            </div>
-            <div>
+        <div class="flex items-center justify-center space-x-12 text-center bg-white rounded-xl shadow-lg p-3 mb-4">
+             <div>
                 <div class="text-sm font-bold text-slate-500 uppercase tracking-wider">Score</div>
-                <div id="score" class="text-4xl font-black text-slate-800">0</div>
+                <div id="score-wrapper" class="relative">
+                    <div id="score" class="text-4xl font-black text-slate-800">0</div>
+                    <div id="high-score-indicator" class="hidden absolute -left-2 top-1/2 -translate-x-full -translate-y-1/2">
+                        <div class="flex items-center text-yellow-500 font-bold text-xs bg-yellow-100 px-2 py-1 rounded-full">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                            </svg>
+                            NEW HIGH!
+                        </div>
+                    </div>
+                </div>
             </div>
             <div>
                 <div class="text-sm font-bold text-slate-500 uppercase tracking-wider">Time</div>
@@ -119,13 +127,14 @@
     const gameContentEl = document.getElementById('game-content');
     const grid = document.getElementById('grid'), lineCanvas = document.getElementById('line-canvas'), ctx = lineCanvas.getContext('2d');
     const scoreEl = document.getElementById('score'), timerEl = document.getElementById('timer');
+    const highScoreIndicator = document.getElementById('high-score-indicator');
     const currentWordLettersEl = document.getElementById('current-word-letters');
     const messageModal = document.getElementById('message-modal'), modalContent = document.getElementById('modal-content');
     const endGameModal = document.getElementById('end-game-modal');
 
     // --- State ---
     let score = 0, timer = GAME_TIME, timerInterval, wordSet = new Set(), foundWords = [], selectedTiles = [], isMouseDown = false, vowelBag = [], consonantBag = [], suitableWords = [];
-    let tilePositions = [];
+    let tilePositions = [], initialHighScore = 0, highScoreBeaten = false;
 
     // --- Init ---
     async function init() {
@@ -186,14 +195,19 @@
     function getBonusType() {
         const rand = Math.random();
         if (rand < 0.02) return { type: 'Time', label: '+5s', class: 'bonus-Time' };
-        if (rand < 0.05) return { type: 'DW', label: '2W', class: 'bonus-DW' };
-        if (rand < 0.08) return { type: 'TL', label: '3L', class: 'bonus-TL' };
-        if (rand < 0.15) return { type: 'DL', label: '2L', class: 'bonus-DL' };
+        if (rand < 0.05) return { type: 'DW', label: 'DW', class: 'bonus-DW' };
+        if (rand < 0.08) return { type: 'TL', label: 'TL', class: 'bonus-TL' };
+        if (rand < 0.15) return { type: 'DL', label: 'DL', class: 'bonus-DL' };
         return null;
     }
 
     // --- Gameplay ---
     function startGame() {
+        const highScores = getHighScores();
+        initialHighScore = highScores.length > 0 ? highScores[0].score : 0;
+        highScoreBeaten = false;
+        highScoreIndicator.classList.add('hidden');
+        
         timer = GAME_TIME; updateTimerUI();
         grid.style.pointerEvents = 'auto';
         timerInterval = setInterval(() => {
@@ -260,7 +274,6 @@
             
             let finalScore = baseScore * wordMultiplier;
 
-            // Length Bonus
             if (word.length >= 7) finalScore += 20;
             else if (word.length === 6) finalScore += 10;
             else if (word.length === 5) finalScore += 5;
@@ -287,8 +300,6 @@
             tile.dataset.letter = letter; 
             tile.dataset.points = points;
             tile.style.transform = 'scale(0)';
-
-            // Clear old bonus
             tile.dataset.bonus = '';
             tile.classList.remove('bonus-DL', 'bonus-TL', 'bonus-DW', 'bonus-Time');
 
@@ -327,6 +338,12 @@
         scoreEl.textContent = score;
         scoreEl.classList.add('animate-pulse');
         scoreEl.addEventListener('animationend', () => scoreEl.classList.remove('animate-pulse'), { once: true });
+        
+        if (!highScoreBeaten && initialHighScore > 0 && score > initialHighScore) {
+            highScoreBeaten = true;
+            highScoreIndicator.classList.remove('hidden');
+            highScoreIndicator.classList.add('new-high-score-enter');
+        }
     }
     
     function updateTimerUI() {
@@ -392,7 +409,7 @@
                         </li>
                         <li class="flex items-start">
                              <svg class="h-6 w-6 text-yellow-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                            <span>Look for <strong>Bonus Tiles</strong> (2L, 3L, 2W, +5s) for extra points and time!</span>
+                            <span>Look for <strong>Bonus Tiles</strong>: DL (Double Letter), TL (Triple Letter), and DW (Double Word).</span>
                         </li>
                          <li class="flex items-start">
                              <svg class="h-6 w-6 text-blue-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -417,7 +434,7 @@
         const highScores = getHighScores();
         const leaderboardHTML = highScores.length ? highScores.map((s, i) => `
             <li class="flex justify-between items-center p-2 rounded-lg ${i === 0 ? 'bg-yellow-200' : ''}">
-                <span class="font-bold text-slate-700">${i + 1}. ${s.score} points</span>
+                <span class="font-bold text-slate-700">${i + 1}. ${s.score}</span>
                 <span class="text-sm text-slate-500">${s.date}</span>
             </li>`).join('') : '<li class="text-slate-500 text-center p-2">No scores yet!</li>';
         const foundWordsHTML = foundWords.length ? foundWords.map(fw => `
