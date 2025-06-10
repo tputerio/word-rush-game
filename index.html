@@ -56,7 +56,6 @@
         }
         .current-letter { animation: pop-in 0.2s ease-out; }
         .modal-enter { animation: pop-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
-        .new-high-score-enter { animation: pop-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
 
     </style>
 </head>
@@ -118,7 +117,7 @@
     import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
 
     // --- Config ---
-    const [GRID_SIZE, GRID_COLS, GAME_TIME, VOWEL_CHANCE] = [16, 4, 60, 0.4];
+    const [GRID_SIZE, GRID_COLS, GAME_TIME] = [16, 4, 60];
     const letterConfig={'A':{c:9,p:1},'B':{c:2,p:3},'C':{c:2,p:3},'D':{c:4,p:2},'E':{c:12,p:1},'F':{c:2,p:4},'G':{c:3,p:2},'H':{c:2,p:4},'I':{c:9,p:1},'J':{c:1,p:8},'K':{c:1,p:5},'L':{c:4,p:1},'M':{c:2,p:3},'N':{c:6,p:1},'O':{c:8,p:1},'P':{c:2,p:3},'Q':{c:1,p:10},'R':{c:6,p:1},'S':{c:4,p:1},'T':{c:6,p:1},'U':{c:4,p:1},'V':{c:2,p:4},'W':{c:2,p:4},'X':{c:1,p:8},'Y':{c:2,p:4},'Z':{c:1,p:10}};
     const VOWELS = ['A', 'E', 'I', 'O', 'U'];
     
@@ -134,8 +133,8 @@
     let auth, db;
 
     // --- State ---
-    let score = 0, timer = GAME_TIME, timerInterval, wordSet = new Set(), foundWords = [], selectedTiles = [], isMouseDown = false, vowelBag = [], consonantBag = [], suitableWords = [];
-    let tilePositions = [];
+    let score = 0, timer = GAME_TIME, timerInterval, wordSet = new Set(), foundWords = [], selectedTiles = [], isMouseDown = false, suitableWords = [];
+    let tilePositions = [], letterBag = [];
 
     // --- Init ---
     async function main() {
@@ -170,18 +169,19 @@
             showWelcomeScreen("Error: Could not load dictionary."); 
         }
         
-        createLetterBags();
+        createLetterBag();
         createGrid();
         setupEventListeners();
         displayHighScore();
         showWelcomeScreen();
     }
     
-    function createLetterBags() {
-        vowelBag = []; consonantBag = [];
-        for (const l in letterConfig) {
-            const bag = VOWELS.includes(l) ? vowelBag : consonantBag;
-            for (let i = 0; i < letterConfig[l].c; i++) bag.push(l);
+    function createLetterBag() {
+        letterBag = [];
+        for (const letter in letterConfig) {
+            for (let i = 0; i < letterConfig[letter].c; i++) {
+                letterBag.push(letter);
+            }
         }
     }
 
@@ -207,31 +207,17 @@
         setTimeout(resizeCanvas, 0);
     }
     
-    function getRandomLetter(smart = false) {
-        const currentVowelChance = smart ? 0.55 : VOWEL_CHANCE;
-        const useVowel = Math.random() < currentVowelChance;
-        let bag;
-        if (useVowel && vowelBag.length > 0) {
-            bag = vowelBag;
-        } else if (consonantBag.length > 0) {
-            bag = consonantBag;
-        } else {
-            bag = vowelBag.length > 0 ? vowelBag : consonantBag;
-        }
-
-        if (!bag || bag.length === 0) {
-            createLetterBags();
-            return getRandomLetter(smart);
-        }
-        return bag[Math.floor(Math.random() * bag.length)];
+    function getRandomLetter() {
+        if (letterBag.length === 0) createLetterBag();
+        return letterBag[Math.floor(Math.random() * letterBag.length)];
     }
 
     function getBonusType() {
         const rand = Math.random();
-        if (rand < 0.02) return { type: 'Time', label: '+5s', class: 'bonus-Time' };
-        if (rand < 0.05) return { type: 'DW', label: 'DW', class: 'bonus-DW' };
-        if (rand < 0.08) return { type: 'TL', label: 'TL', class: 'bonus-TL' };
-        if (rand < 0.15) return { type: 'DL', label: 'DL', class: 'bonus-DL' };
+        if (rand < 0.05) return { type: 'Time', label: '+5s', class: 'bonus-Time' };
+        if (rand < 0.12) return { type: 'DW', label: 'DW', class: 'bonus-DW' };
+        if (rand < 0.20) return { type: 'TL', label: 'TL', class: 'bonus-TL' };
+        if (rand < 0.30) return { type: 'DL', label: 'DL', class: 'bonus-DL' };
         return null;
     }
 
@@ -327,7 +313,7 @@
 
     function replaceSelectedTiles() {
         selectedTiles.forEach(tile => {
-            const letter = getRandomLetter(true);
+            const letter = getRandomLetter();
             const points = letterConfig[letter].p;
             tile.dataset.letter = letter; 
             tile.dataset.points = points;
@@ -451,7 +437,7 @@
                     <ul class="space-y-3">
                         <li class="flex items-start">
                              <svg class="h-6 w-6 text-green-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                            <span><strong>Swipe tiles</strong> to build words (3+ letters). Release to submit!</span>
+                            <span><strong>Swipe adjacent tiles</strong> (including diagonals) to build words. Release to submit!</span>
                         </li>
                         <li class="flex items-start">
                              <svg class="h-6 w-6 text-yellow-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
@@ -670,7 +656,7 @@
             if (placedSuccessfully) {
                 for (let i = 0; i < GRID_SIZE; i++) {
                     if (board[i] === null) {
-                        board[i] = getRandomLetter(false);
+                        board[i] = getRandomLetter();
                     }
                 }
                 
@@ -682,7 +668,7 @@
         }
         
         while(true) {
-            const board = Array.from({ length: GRID_SIZE }, () => getRandomLetter(false));
+            const board = Array.from({ length: GRID_SIZE }, () => getRandomLetter());
             const consonantCount = board.filter(l => !VOWELS.includes(l)).length;
             if (consonantCount >= 6) {
                 return board;
