@@ -9,6 +9,7 @@
     <style>
         body { font-family: 'Inter', sans-serif; overflow: hidden; touch-action: none; }
         .tile {
+            position: relative;
             transition: all 0.2s ease-in-out; -webkit-user-select: none; user-select: none;
             box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
         }
@@ -20,6 +21,22 @@
         #game-content.blurred { filter: blur(8px); transform: scale(0.95); transition: all 0.3s ease-in-out; }
         #game-content { transition: all 0.3s ease-in-out; }
         #line-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+        
+        /* Bonus Tile Styles */
+        .bonus-label {
+            position: absolute;
+            top: 2px;
+            right: 4px;
+            font-size: 0.65rem;
+            font-weight: 900;
+            color: white;
+            padding: 0px 3px;
+            border-radius: 3px;
+        }
+        .bonus-DL { background-color: #3b82f6 !important; } /* Blue */
+        .bonus-TL { background-color: #ef4444 !important; } /* Red */
+        .bonus-DW { background-color: #f59e0b !important; } /* Amber */
+        .bonus-Time { background-color: #22c55e !important; } /* Green */
         
         /* Animations */
         @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
@@ -143,6 +160,13 @@
             tile.className = 'tile w-full aspect-square border-2 border-slate-300 bg-white rounded-lg flex items-center justify-center text-3xl font-bold text-slate-800 cursor-pointer';
             tile.dataset.letter = letter; tile.dataset.points = points; tile.dataset.id = i;
             tile.innerHTML = `<span>${letter}<sub class="text-xs font-semibold ml-1">${points}</sub></span>`;
+            
+            const bonusType = getBonusType();
+            if (bonusType) {
+                tile.dataset.bonus = bonusType.type;
+                tile.classList.add(bonusType.class);
+                tile.innerHTML += `<div class="bonus-label">${bonusType.label}</div>`;
+            }
             grid.appendChild(tile);
         }
         setTimeout(resizeCanvas, 0);
@@ -157,6 +181,15 @@
             return getRandomLetter(smart); 
         }
         return bag[Math.floor(Math.random() * bag.length)];
+    }
+
+    function getBonusType() {
+        const rand = Math.random();
+        if (rand < 0.02) return { type: 'Time', label: '+5s', class: 'bonus-Time' };
+        if (rand < 0.05) return { type: 'DW', label: '2W', class: 'bonus-DW' };
+        if (rand < 0.08) return { type: 'TL', label: '3L', class: 'bonus-TL' };
+        if (rand < 0.15) return { type: 'DL', label: '2L', class: 'bonus-DL' };
+        return null;
     }
 
     // --- Gameplay ---
@@ -187,9 +220,7 @@
     // --- Input & Word Logic ---
     function handleInteraction(tile) {
         if (!tile || !isMouseDown) return;
-
         const lastSelected = selectedTiles[selectedTiles.length - 1];
-        
         if (selectedTiles.length > 1 && tile === selectedTiles[selectedTiles.length - 2]) {
             const lastTile = selectedTiles.pop();
             lastTile.classList.remove('selected');
@@ -197,7 +228,6 @@
             selectedTiles.push(tile);
             tile.classList.add('selected');
         }
-        
         updateCurrentWord();
         drawLines();
     }
@@ -213,11 +243,38 @@
     function submitWord() {
         const word = selectedTiles.map(t => t.dataset.letter).join('');
         if (word.length >= 3 && wordSet.has(word)) {
-            let wordScore = selectedTiles.reduce((sum, t) => sum + parseInt(t.dataset.points), 0);
-            foundWords.push({ word, score: wordScore });
-            createFlyingScore(wordScore, selectedTiles[0]);
+            let baseScore = 0;
+            let wordMultiplier = 1;
+            let timeBonus = 0;
+
+            selectedTiles.forEach(tile => {
+                let letterScore = parseInt(tile.dataset.points);
+                switch(tile.dataset.bonus) {
+                    case 'DL': letterScore *= 2; break;
+                    case 'TL': letterScore *= 3; break;
+                    case 'DW': wordMultiplier *= 2; break;
+                    case 'Time': timeBonus += 5; break;
+                }
+                baseScore += letterScore;
+            });
+            
+            let finalScore = baseScore * wordMultiplier;
+
+            // Length Bonus
+            if (word.length >= 7) finalScore += 20;
+            else if (word.length === 6) finalScore += 10;
+            else if (word.length === 5) finalScore += 5;
+            else if (word.length === 4) finalScore += 2;
+
+            if (timeBonus > 0) {
+                timer += timeBonus;
+                updateTimerUI();
+            }
+
+            foundWords.push({ word, score: finalScore });
+            createFlyingScore(finalScore, selectedTiles[0]);
             triggerConfetti(selectedTiles);
-            setTimeout(() => { score += wordScore; updateScoreDisplay(); }, 500);
+            setTimeout(() => { score += finalScore; updateScoreDisplay(); }, 500);
             replaceSelectedTiles();
         }
         clearSelection();
@@ -230,8 +287,19 @@
             tile.dataset.letter = letter; 
             tile.dataset.points = points;
             tile.style.transform = 'scale(0)';
+
+            // Clear old bonus
+            tile.dataset.bonus = '';
+            tile.classList.remove('bonus-DL', 'bonus-TL', 'bonus-DW', 'bonus-Time');
+
             setTimeout(() => {
                 tile.innerHTML = `<span>${letter}<sub class="text-xs font-semibold ml-1">${points}</sub></span>`;
+                const bonusType = getBonusType();
+                if (bonusType) {
+                    tile.dataset.bonus = bonusType.type;
+                    tile.classList.add(bonusType.class);
+                    tile.innerHTML += `<div class="bonus-label">${bonusType.label}</div>`;
+                }
                 tile.style.transform = 'scale(1)';
             }, 200);
         });
@@ -319,16 +387,16 @@
                     <h3 class="text-lg font-bold text-slate-700 text-center mb-3">How to Play</h3>
                     <ul class="space-y-3">
                         <li class="flex items-start">
-                            <svg class="h-6 w-6 text-green-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                            <span><strong>Connect letters</strong> to form words of 3 or more.</span>
+                             <svg class="h-6 w-6 text-green-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                            <span><strong>Swipe tiles</strong> to build words. Release to submit!</span>
                         </li>
                         <li class="flex items-start">
-                             <svg class="h-6 w-6 text-green-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                            <span><strong>Swipe tiles</strong> to build your word. Release to submit!</span>
+                             <svg class="h-6 w-6 text-yellow-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                            <span>Look for <strong>Bonus Tiles</strong> (2L, 3L, 2W, +5s) for extra points and time!</span>
                         </li>
-                        <li class="flex items-start">
-                             <svg class="h-6 w-6 text-green-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                            <span>Race the <strong>60-second timer</strong> to get the highest score!</span>
+                         <li class="flex items-start">
+                             <svg class="h-6 w-6 text-blue-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            <span>Get a <strong>Length Bonus</strong> for words with 4 or more letters!</span>
                         </li>
                     </ul>
                 </div>
