@@ -56,7 +56,6 @@
         }
         .current-letter { animation: pop-in 0.2s ease-out; }
         .modal-enter { animation: pop-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
-        .new-high-score-enter { animation: pop-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
 
     </style>
 </head>
@@ -80,15 +79,9 @@
             </h1>
         </div>
         <div class="grid grid-cols-3 items-center text-center bg-white rounded-xl shadow-lg p-2 mb-3">
-            <div id="high-score-indicator-wrapper" class="text-left pl-2">
-                 <div id="high-score-indicator" class="hidden">
-                    <div class="flex items-center text-yellow-500 font-bold text-xs bg-yellow-100 px-2 py-1 rounded-full new-high-score-enter">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                        </svg>
-                        NEW HIGH!
-                    </div>
-                </div>
+            <div>
+                <div class="text-xs font-bold text-slate-500 uppercase tracking-wider">High</div>
+                <div id="high-score" class="text-3xl font-black text-slate-400">0</div>
             </div>
             <div>
                 <div class="text-xs font-bold text-slate-500 uppercase tracking-wider">Score</div>
@@ -113,11 +106,16 @@
         <div id="modal-content" class="w-full max-w-sm mx-auto"></div>
     </div>
     <div id="end-game-modal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
-        <div class="w-full max-w-sm mx-auto"></div>
+        <div id="end-game-modal-content" class="w-full max-w-sm mx-auto"></div>
     </div>
 </div>
 
-<script>
+<script type="module">
+    // --- Firebase SDKs ---
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
+    import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
+
     // --- Config ---
     const [GRID_SIZE, GRID_COLS, GAME_TIME, VOWEL_CHANCE] = [16, 4, 60, 0.4];
     const letterConfig={'A':{c:9,p:1},'B':{c:2,p:3},'C':{c:2,p:3},'D':{c:4,p:2},'E':{c:12,p:1},'F':{c:2,p:4},'G':{c:3,p:2},'H':{c:2,p:4},'I':{c:9,p:1},'J':{c:1,p:8},'K':{c:1,p:5},'L':{c:4,p:1},'M':{c:2,p:3},'N':{c:6,p:1},'O':{c:8,p:1},'P':{c:2,p:3},'Q':{c:1,p:10},'R':{c:6,p:1},'S':{c:4,p:1},'T':{c:6,p:1},'U':{c:4,p:1},'V':{c:2,p:4},'W':{c:2,p:4},'X':{c:1,p:8},'Y':{c:2,p:4},'Z':{c:1,p:10}};
@@ -126,27 +124,55 @@
     // --- DOM Elements ---
     const gameContentEl = document.getElementById('game-content');
     const grid = document.getElementById('grid'), lineCanvas = document.getElementById('line-canvas'), ctx = lineCanvas.getContext('2d');
-    const scoreEl = document.getElementById('score'), timerEl = document.getElementById('timer');
-    const highScoreIndicator = document.getElementById('high-score-indicator');
+    const scoreEl = document.getElementById('score'), timerEl = document.getElementById('timer'), highScoreEl = document.getElementById('high-score');
     const currentWordLettersEl = document.getElementById('current-word-letters');
     const messageModal = document.getElementById('message-modal'), modalContent = document.getElementById('modal-content');
-    const endGameModal = document.getElementById('end-game-modal');
+    const endGameModal = document.getElementById('end-game-modal'), endGameModalContent = document.getElementById('end-game-modal-content');
+
+    // --- Firebase State ---
+    let auth, db;
 
     // --- State ---
     let score = 0, timer = GAME_TIME, timerInterval, wordSet = new Set(), foundWords = [], selectedTiles = [], isMouseDown = false, vowelBag = [], consonantBag = [], suitableWords = [];
-    let tilePositions = [], initialHighScore = 0, highScoreBeaten = false;
+    let tilePositions = [];
 
     // --- Init ---
-    async function init() {
+    async function main() {
+        try {
+            const firebaseConfig = {
+                apiKey: "AIzaSyBa2DPRjwaI-G5mz-OmHVXEDJ4_MzBAZgA",
+                authDomain: "word-rush-game-9010a.firebaseapp.com",
+                projectId: "word-rush-game-9010a",
+                storageBucket: "word-rush-game-9010a.firebasestorage.app",
+                messagingSenderId: "551838491871",
+                appId: "1:551838491871:web:757325be04daab9289b56a",
+                measurementId: "G-D0TSQFY1XS"
+            };
+            const app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+
+            await signInAnonymously(auth);
+            console.log("Signed in anonymously");
+        } catch (e) {
+            showWelcomeScreen("Error: Could not connect to servers.");
+            console.error("Firebase initialization failed:", e);
+            return; 
+        }
+
         try {
             const res = await fetch('https://raw.githubusercontent.com/redbo/scrabble/master/dictionary.txt');
             const words = (await res.text()).split('\n').map(w => w.trim().toUpperCase()).filter(w => w.length >= 3);
             wordSet = new Set(words);
             suitableWords = words.filter(w => w.length >= 4 && w.length <= 7);
-        } catch (e) { showWelcomeScreen("Error: Could not load dictionary."); }
+        } catch (e) { 
+            showWelcomeScreen("Error: Could not load dictionary."); 
+        }
+        
         createLetterBags();
         createGrid();
         setupEventListeners();
+        displayHighScore();
         showWelcomeScreen();
     }
     
@@ -183,10 +209,18 @@
     function getRandomLetter(smart = false) {
         const currentVowelChance = smart ? 0.55 : VOWEL_CHANCE;
         const useVowel = Math.random() < currentVowelChance;
-        const bag = (useVowel && vowelBag.length) ? vowelBag : (consonantBag.length ? consonantBag : null);
-        if (!bag) { 
-            createLetterBags(); 
-            return getRandomLetter(smart); 
+        let bag;
+        if (useVowel && vowelBag.length > 0) {
+            bag = vowelBag;
+        } else if (consonantBag.length > 0) {
+            bag = consonantBag;
+        } else {
+            bag = vowelBag.length > 0 ? vowelBag : consonantBag;
+        }
+
+        if (!bag || bag.length === 0) {
+            createLetterBags();
+            return getRandomLetter(smart);
         }
         return bag[Math.floor(Math.random() * bag.length)];
     }
@@ -202,11 +236,7 @@
 
     // --- Gameplay ---
     function startGame() {
-        const highScores = getHighScores();
-        initialHighScore = highScores.length > 0 ? highScores[0].score : 0;
-        highScoreBeaten = false;
-        highScoreIndicator.classList.add('hidden');
-        
+        displayHighScore();
         timer = GAME_TIME; updateTimerUI();
         grid.style.pointerEvents = 'auto';
         timerInterval = setInterval(() => {
@@ -218,7 +248,7 @@
     function endGame() {
         clearInterval(timerInterval);
         grid.style.pointerEvents = 'none';
-        saveScore(score);
+        saveLocalHighScore(score);
         showEndGameScreen();
     }
 
@@ -226,7 +256,9 @@
         endGameModal.classList.add('hidden');
         score = 0;
         foundWords = [];
-        updateScoreDisplay(); createGrid(); clearSelection();
+        updateScoreDisplay(); 
+        createGrid(); 
+        clearSelection();
         showWelcomeScreen();
     }
     
@@ -323,14 +355,23 @@
     }
 
     // --- Leaderboard ---
-    function saveScore(s) {
-        if (s === 0) return;
-        const scores = getHighScores();
-        scores.push({ score: s, date: new Date().toLocaleDateString() });
-        scores.sort((a, b) => b.score - a.score);
-        localStorage.setItem('wordRushHighScores', JSON.stringify(scores.slice(0, 5)));
+    function saveLocalHighScore(s) {
+        const currentHighScore = getLocalHighScore();
+        if (s > currentHighScore) {
+            localStorage.setItem('wordRushHighScore', s);
+        }
     }
-    function getHighScores() { return JSON.parse(localStorage.getItem('wordRushHighScores')) || []; }
+    function getLocalHighScore() { return parseInt(localStorage.getItem('wordRushHighScore')) || 0; }
+    async function saveGlobalScore(name, scoreToSave) {
+        if(!name || scoreToSave === 0 || !db) return;
+        try {
+            await addDoc(collection(db, "scores"), {
+                name: name,
+                score: scoreToSave,
+                timestamp: new Date()
+            });
+        } catch(e) { console.error("Error adding document: ", e); }
+    }
     
     // --- UI & Animations ---
     function updateScoreDisplay() {
@@ -338,12 +379,18 @@
         scoreEl.classList.add('animate-pulse');
         scoreEl.addEventListener('animationend', () => scoreEl.classList.remove('animate-pulse'), { once: true });
         
-        if (!highScoreBeaten && initialHighScore > 0 && score > initialHighScore) {
-            highScoreBeaten = true;
-            highScoreIndicator.classList.remove('hidden');
+        const currentHighScore = getLocalHighScore();
+        if (score > currentHighScore) {
+            highScoreEl.textContent = score;
+            highScoreEl.classList.add('text-yellow-500', 'animate-pulse');
         }
     }
     
+    function displayHighScore() {
+        highScoreEl.textContent = getLocalHighScore();
+        highScoreEl.classList.remove('text-yellow-500', 'animate-pulse');
+    }
+
     function updateTimerUI() {
         timerEl.textContent = timer;
         timerEl.classList.remove('text-green-500', 'text-yellow-500', 'text-red-500', 'animate-pulse');
@@ -428,37 +475,77 @@
         };
     }
 
-    function showEndGameScreen() {
-        const highScores = getHighScores();
-        const leaderboardHTML = highScores.length ? highScores.map((s, i) => `
-            <li class="flex justify-between items-center p-2 rounded-lg ${i === 0 && s.score === score ? 'bg-yellow-200' : ''}">
-                <span class="font-bold text-slate-700">${i + 1}. ${s.score}</span>
-                <span class="text-sm text-slate-500">${s.date}</span>
-            </li>`).join('') : '<li class="text-slate-500 text-center p-2">No scores yet!</li>';
+    async function showEndGameScreen() {
+        endGameModalContent.innerHTML = `<div class="bg-white rounded-2xl shadow-2xl p-6 text-center w-full max-w-sm mx-auto modal-enter">Loading Leaderboard...</div>`;
+        gameContentEl.classList.add('blurred');
+        endGameModal.classList.remove('hidden');
+
+        let leaderboardHTML = '<li class="text-slate-500 text-center p-2">No scores yet.</li>';
+        try {
+            const q = query(collection(db, "scores"), orderBy("score", "desc"), limit(5));
+            const querySnapshot = await getDocs(q);
+            const highScores = [];
+            querySnapshot.forEach((doc) => {
+                highScores.push(doc.data());
+            });
+
+            if (highScores.length > 0) {
+                 leaderboardHTML = highScores.map((s, i) => `
+                    <li class="flex justify-between items-center p-2 rounded-lg">
+                        <span class="font-bold text-slate-700">${i + 1}. ${s.name}</span>
+                        <span class="font-bold text-blue-500">${s.score}</span>
+                    </li>`).join('');
+            }
+        } catch (e) {
+            console.error("Could not fetch leaderboard", e);
+            leaderboardHTML = '<li class="text-red-500 text-center p-2">Could not load leaderboard.</li>';
+        }
+        
         const foundWordsHTML = foundWords.length ? foundWords.map(fw => `
             <div class="flex justify-between text-sm"><span class="font-semibold">${fw.word.toUpperCase()}</span><span>+${fw.score}</span></div>
         `).join('') : '<p class="text-sm text-slate-500">No words found.</p>';
 
-        endGameModal.innerHTML = `
+        endGameModalContent.innerHTML = `
             <div class="bg-white rounded-2xl shadow-2xl p-6 text-center w-full max-w-sm mx-auto modal-enter">
                 <h2 class="text-3xl font-black text-blue-500">Great Game!</h2>
                 <p class="text-slate-600 mb-2">Your final score is:</p>
                 <p class="text-6xl font-black text-slate-800 mb-4">${score}</p>
+                
+                <div id="submit-score-form">
+                    <div class="flex space-x-2 mb-4">
+                        <input type="text" id="player-name" placeholder="Enter your name" class="w-full px-3 py-2 border border-slate-300 rounded-lg" maxlength="10">
+                        <button id="submit-global-score" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg">Submit</button>
+                    </div>
+                </div>
+
                 <div class="grid grid-cols-2 gap-4 mb-6 text-left">
                     <div>
-                        <h3 class="text-xl font-bold text-slate-700 mb-2 border-b pb-2">High Scores</h3>
+                        <h3 class="text-xl font-bold text-slate-700 mb-2 border-b pb-2">Global Highs</h3>
                         <ol class="space-y-1">${leaderboardHTML}</ol>
                     </div>
                     <div>
-                         <h3 class="text-xl font-bold text-slate-700 mb-2 border-b pb-2">Words Found</h3>
+                         <h3 class="text-xl font-bold text-slate-700 mb-2 border-b pb-2">Your Words</h3>
                          <div class="space-y-1 max-h-32 overflow-y-auto pr-2">${foundWordsHTML}</div>
                     </div>
                 </div>
                 <button id="play-again-button" class="bg-blue-500 hover:bg-blue-600 w-full text-white font-bold py-3 px-8 rounded-lg text-lg shadow-lg transition-transform hover:scale-105">Play Again</button>
             </div>`;
-        gameContentEl.classList.add('blurred');
-        endGameModal.classList.remove('hidden');
+        
         document.getElementById('play-again-button').onclick = resetGame;
+        document.getElementById('submit-global-score').onclick = async (e) => {
+            e.target.disabled = true;
+            e.target.textContent = 'Submitting...';
+            const nameInput = document.getElementById('player-name');
+            const playerName = nameInput.value.trim();
+            if (playerName) {
+                await saveGlobalScore(playerName, score);
+                document.getElementById('submit-score-form').innerHTML = `<div class="flex items-center justify-center text-green-600 font-bold mb-4 pop-in"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg><span>Score Submitted!</span></div>`;
+                showEndGameScreen();
+            } else {
+                e.target.disabled = false;
+                e.target.textContent = 'Submit';
+            }
+        };
     }
 
     // --- Canvas & Listeners ---
@@ -559,7 +646,7 @@
 
     // --- Smart Board Generation ---
     function generateSmartBoard() {
-        for (let attempts = 0; attempts < 50; attempts++) {
+        for (let attempts = 0; attempts < 100; attempts++) {
             const board = new Array(GRID_SIZE).fill(null);
             const wordsToPlace = getWordsForBoard();
             let placedSuccessfully = true;
@@ -575,16 +662,28 @@
                     break;
                 }
             }
+            
             if (placedSuccessfully) {
                 for (let i = 0; i < GRID_SIZE; i++) {
                     if (board[i] === null) {
                         board[i] = getRandomLetter(false);
                     }
                 }
+                
+                const consonantCount = board.filter(l => !VOWELS.includes(l)).length;
+                if (consonantCount >= 6) { 
+                    return board;
+                }
+            }
+        }
+        
+        while(true) {
+            const board = Array.from({ length: GRID_SIZE }, () => getRandomLetter(false));
+            const consonantCount = board.filter(l => !VOWELS.includes(l)).length;
+            if (consonantCount >= 6) {
                 return board;
             }
         }
-        return Array.from({ length: GRID_SIZE }, () => getRandomLetter(false));
     }
 
     function getWordsForBoard() {
@@ -646,7 +745,7 @@
         return false;
     }
 
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', main);
 </script>
 </body>
 </html>
