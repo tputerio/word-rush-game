@@ -64,7 +64,7 @@
 
 <div id="game-container" class="w-full max-w-sm mx-auto p-4">
     <div id="game-content">
-        <div class="text-center mb-4">
+        <div class="text-center mb-3">
             <h1 class="text-4xl font-black text-slate-800 tracking-tighter flex items-center justify-center">
                  <svg width="40" height="40" viewBox="0 0 44 44" class="inline-block mr-3">
                     <rect x="0" y="0" width="20" height="20" rx="4" class="fill-blue-500"></rect>
@@ -79,27 +79,27 @@
                 <span>Word Rush</span>
             </h1>
         </div>
-        <div class="flex items-center justify-center space-x-12 text-center bg-white rounded-xl shadow-lg p-3 mb-4">
-             <div>
-                <div class="text-sm font-bold text-slate-500 uppercase tracking-wider">Score</div>
-                <div id="score-wrapper" class="relative">
-                    <div id="score" class="text-4xl font-black text-slate-800">0</div>
-                    <div id="high-score-indicator" class="hidden absolute -left-2 top-1/2 -translate-x-full -translate-y-1/2">
-                        <div class="flex items-center text-yellow-500 font-bold text-xs bg-yellow-100 px-2 py-1 rounded-full">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                            </svg>
-                            NEW HIGH!
-                        </div>
+        <div class="grid grid-cols-3 items-center text-center bg-white rounded-xl shadow-lg p-2 mb-3">
+            <div id="high-score-indicator-wrapper" class="text-left pl-2">
+                 <div id="high-score-indicator" class="hidden">
+                    <div class="flex items-center text-yellow-500 font-bold text-xs bg-yellow-100 px-2 py-1 rounded-full new-high-score-enter">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                        </svg>
+                        NEW HIGH!
                     </div>
                 </div>
             </div>
             <div>
-                <div class="text-sm font-bold text-slate-500 uppercase tracking-wider">Time</div>
-                <div id="timer" class="text-4xl font-bold text-green-500 transition-all duration-300">60</div>
+                <div class="text-xs font-bold text-slate-500 uppercase tracking-wider">Score</div>
+                <div id="score" class="text-3xl font-black text-slate-800">0</div>
+            </div>
+            <div>
+                <div class="text-xs font-bold text-slate-500 uppercase tracking-wider">Time</div>
+                <div id="timer" class="text-3xl font-bold text-green-500 transition-all duration-300">60</div>
             </div>
         </div>
-        <div id="current-word-container" class="mb-4 p-2 bg-slate-200 rounded-lg shadow-inner min-h-[60px] flex items-center justify-center">
+        <div id="current-word-container" class="mb-3 p-2 bg-slate-200 rounded-lg shadow-inner min-h-[52px] flex items-center justify-center">
             <div id="current-word-letters" class="flex-grow flex items-center justify-center space-x-1"></div>
         </div>
         <div id="grid-container" class="relative">
@@ -143,7 +143,6 @@
             const words = (await res.text()).split('\n').map(w => w.trim().toUpperCase()).filter(w => w.length >= 3);
             wordSet = new Set(words);
             suitableWords = words.filter(w => w.length >= 4 && w.length <= 7);
-            console.log(`Dictionary loaded with ${wordSet.size} words.`);
         } catch (e) { showWelcomeScreen("Error: Could not load dictionary."); }
         createLetterBags();
         createGrid();
@@ -342,7 +341,6 @@
         if (!highScoreBeaten && initialHighScore > 0 && score > initialHighScore) {
             highScoreBeaten = true;
             highScoreIndicator.classList.remove('hidden');
-            highScoreIndicator.classList.add('new-high-score-enter');
         }
     }
     
@@ -380,7 +378,7 @@
     }
 
     function updateCurrentWord() {
-        currentWordLettersEl.innerHTML = selectedTiles.map(t => `<span class="current-letter bg-white text-blue-500 font-bold text-2xl p-2 rounded-md shadow-sm">${t.dataset.letter}</span>`).join('');
+        currentWordLettersEl.innerHTML = selectedTiles.map(t => `<span class="current-letter bg-white text-blue-500 font-bold text-xl p-1.5 rounded-md shadow-sm">${t.dataset.letter}</span>`).join('');
     }
 
     function showWelcomeScreen(error = null) {
@@ -405,11 +403,11 @@
                     <ul class="space-y-3">
                         <li class="flex items-start">
                              <svg class="h-6 w-6 text-green-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                            <span><strong>Swipe tiles</strong> to build words. Release to submit!</span>
+                            <span><strong>Swipe tiles</strong> to build words (3+ letters). Release to submit!</span>
                         </li>
                         <li class="flex items-start">
                              <svg class="h-6 w-6 text-yellow-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                            <span>Look for <strong>Bonus Tiles</strong>: DL (Double Letter), TL (Triple Letter), and DW (Double Word).</span>
+                            <span>Use <strong>Bonus Tiles</strong>: DL (Double Letter), TL (Triple Letter), and DW (Double Word).</span>
                         </li>
                          <li class="flex items-start">
                              <svg class="h-6 w-6 text-blue-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -433,7 +431,7 @@
     function showEndGameScreen() {
         const highScores = getHighScores();
         const leaderboardHTML = highScores.length ? highScores.map((s, i) => `
-            <li class="flex justify-between items-center p-2 rounded-lg ${i === 0 ? 'bg-yellow-200' : ''}">
+            <li class="flex justify-between items-center p-2 rounded-lg ${i === 0 && s.score === score ? 'bg-yellow-200' : ''}">
                 <span class="font-bold text-slate-700">${i + 1}. ${s.score}</span>
                 <span class="text-sm text-slate-500">${s.date}</span>
             </li>`).join('') : '<li class="text-slate-500 text-center p-2">No scores yet!</li>';
