@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Word Rush</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; overflow: hidden; touch-action: none; }
+        .tile {
+            transition: all 0.2s ease-in-out; -webkit-user-select: none; user-select: none;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+        .tile.selected {
+            background: linear-gradient(45deg, #60a5fa, #3b82f6);
+            color: white; transform: scale(1.08); border-color: #2563eb;
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.2), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+        }
+        #game-content.blurred { filter: blur(8px); transform: scale(0.95); transition: all 0.3s ease-in-out; }
+        #game-content { transition: all 0.3s ease-in-out; }
+        #line-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+        
+        /* Animations */
+        @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+        .animate-pulse-score { animation: pulse 0.4s ease-in-out; }
+        @keyframes fly-to-score {
+            0% { transform: translate(0, 0) scale(1.2); opacity: 1; }
+            100% { transform: translate(0, -180px) scale(0.5); opacity: 0; }
+        }
+        .flying-score {
+            position: absolute; background: linear-gradient(45deg, #facc15, #f59e0b); color: white;
+            padding: 8px 16px; border-radius: 9999px; font-weight: bold; font-size: 1.25rem;
+            z-index: 100; animation: fly-to-score 1.5s ease-in-out forwards; pointer-events: none;
+        }
+        #score-progress-bar {
+            background: linear-gradient(45deg, #22c55e, #84cc16); position: relative; overflow: hidden;
+        }
+        #score-progress-bar::after {
+            content: ''; position: absolute; top: 0; left: -50%; width: 200%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+            animation: shine 2.5s infinite linear;
+        }
+        @keyframes shine { 0% { transform: translateX(0); } 100% { transform: translateX(50%); } }
+        .particle {
+            position: absolute; width: 8px; height: 8px; background: #facc15; border-radius: 50%;
+            pointer-events: none; z-index: 101; opacity: 0; animation: burst 0.8s ease-out forwards;
+        }
+        @keyframes burst {
+            0% { transform: translate(0, 0) scale(0.5); opacity: 1; }
+            100% { transform: var(--transform-end) scale(0); opacity: 0; }
+        }
+        @keyframes pop-in {
+            0% { transform: scale(0.8); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .current-letter { animation: pop-in 0.2s ease-out; }
+        .modal-enter { animation: pop-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+
+        /* Timer Circle */
+        .timer-circle-bg { stroke: #e5e7eb; }
+        .timer-circle-fg { stroke: #22c55e; transition: stroke 0.5s linear, stroke-dashoffset 1s linear; }
+        .timer-urgent { animation: pulse 1s infinite; }
+    </style>
+</head>
+<body class="bg-slate-100 flex items-center justify-center min-h-screen">
+
+<div id="game-container" class="w-full max-w-sm mx-auto p-4">
+    <div id="game-content">
+        <div class="text-center mb-4">
+            <h1 class="text-4xl font-black text-slate-800 tracking-tighter">
+                <span role="img" aria-label="rabbit">🐇</span> Word Rush
+            </h1>
+        </div>
+        <div class="bg-white rounded-xl shadow-lg p-4 mb-4">
+            <div class="flex justify-between items-center mb-2">
+                <span class="font-bold text-slate-700">Points</span>
+                <span id="score" class="font-bold text-lg text-slate-800 transition-transform">0</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-4 mb-4">
+                <div id="score-progress-bar" class="h-4 rounded-full transition-all duration-500" style="width: 0%;"></div>
+            </div>
+            <div class="flex justify-center items-center">
+                 <div id="timer-container" class="relative w-20 h-20">
+                    <svg class="w-full h-full" viewBox="0 0 36 36">
+                        <path class="timer-circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke-width="3" />
+                        <path id="timer-progress" class="timer-circle-fg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke-width="3" stroke-dasharray="100, 100" stroke-linecap="round" transform="rotate(-90 18 18)" />
+                    </svg>
+                    <div id="timer" class="absolute inset-0 flex items-center justify-center text-2xl font-bold text-slate-800 transition-all duration-300">60</div>
+                </div>
+            </div>
+        </div>
+        <div id="current-word-container" class="mb-4 p-2 bg-slate-200 rounded-lg shadow-inner min-h-[60px] flex items-center justify-center">
+            <div id="current-word-letters" class="flex-grow flex items-center justify-center space-x-1"></div>
+        </div>
+        <div id="grid-container" class="relative">
+            <canvas id="line-canvas"></canvas>
+            <div id="grid" class="grid grid-cols-4 gap-2 select-none"></div>
+        </div>
+    </div>
+    
+    <!-- Modals -->
+    <div id="message-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div id="modal-content" class="w-full max-w-sm mx-auto"></div>
+    </div>
+    <div id="end-game-modal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+        <div class="w-full max-w-sm mx-auto"></div>
+    </div>
+</div>
+
+<script>
+    // --- Config ---
+    const [GRID_SIZE, GRID_COLS, GAME_TIME, VOWEL_CHANCE] = [16, 4, 60, 0.4];
+    const letterConfig={'A':{c:9,p:1},'B':{c:2,p:3},'C':{c:2,p:3},'D':{c:4,p:2},'E':{c:12,p:1},'F':{c:2,p:4},'G':{c:3,p:2},'H':{c:2,p:4},'I':{c:9,p:1},'J':{c:1,p:8},'K':{c:1,p:5},'L':{c:4,p:1},'M':{c:2,p:3},'N':{c:6,p:1},'O':{c:8,p:1},'P':{c:2,p:3},'Q':{c:1,p:10},'R':{c:6,p:1},'S':{c:4,p:1},'T':{c:6,p:1},'U':{c:4,p:1},'V':{c:2,p:4},'W':{c:2,p:4},'X':{c:1,p:8},'Y':{c:2,p:4},'Z':{c:1,p:10}};
+    const VOWELS = ['A', 'E', 'I', 'O', 'U'];
+    
+    // --- DOM Elements ---
+    const gameContentEl = document.getElementById('game-content');
+    const grid = document.getElementById('grid'), lineCanvas = document.getElementById('line-canvas'), ctx = lineCanvas.getContext('2d');
+    const scoreEl = document.getElementById('score'), timerEl = document.getElementById('timer'), scoreProgressBar = document.getElementById('score-progress-bar');
+    const timerProgress = document.getElementById('timer-progress'), timerContainer = document.getElementById('timer-container');
+    const currentWordLettersEl = document.getElementById('current-word-letters');
+    const messageModal = document.getElementById('message-modal'), modalContent = document.getElementById('modal-content');
+    const endGameModal = document.getElementById('end-game-modal');
+
+    // --- State ---
+    let score = 0, timer = GAME_TIME, timerInterval, wordSet = new Set(), foundWords = [], selectedTiles = [], isMouseDown = false, vowelBag = [], consonantBag = [], suitableWords = [];
+    let tilePositions = [];
+
+    // --- Init ---
+    async function init() {
+        try {
+            const res = await fetch('https://raw.githubusercontent.com/redbo/scrabble/master/dictionary.txt');
+            const words = (await res.text()).split('\n').map(w => w.trim().toUpperCase()).filter(w => w.length >= 3);
+            wordSet = new Set(words);
+            suitableWords = words.filter(w => w.length >= 4 && w.length <= 7);
+            console.log(`Dictionary loaded with ${wordSet.size} words.`);
+        } catch (e) { showWelcomeScreen("Error: Could not load dictionary."); }
+        createLetterBags();
+        createGrid();
+        setupEventListeners();
+        showWelcomeScreen();
+    }
+    
+    function createLetterBags() {
+        vowelBag = []; consonantBag = [];
+        for (const l in letterConfig) {
+            const bag = VOWELS.includes(l) ? vowelBag : consonantBag;
+            for (let i = 0; i < letterConfig[l].c; i++) bag.push(l);
+        }
+    }
+
+    function createGrid() {
+        const board = generateSmartBoard();
+        grid.innerHTML = '';
+        for (let i = 0; i < GRID_SIZE; i++) {
+            const letter = board[i];
+            const points = letterConfig[letter].p;
+            const tile = document.createElement('div');
+            tile.className = 'tile w-full aspect-square border-2 border-slate-300 bg-white rounded-lg flex items-center justify-center text-3xl font-bold text-slate-800 cursor-pointer';
+            tile.dataset.letter = letter; tile.dataset.points = points; tile.dataset.id = i;
+            tile.innerHTML = `<span>${letter}<sub class="text-xs font-semibold ml-1">${points}</sub></span>`;
+            grid.appendChild(tile);
+        }
+        setTimeout(resizeCanvas, 0);
+    }
+    
+    function getRandomLetter() {
+        const useVowel = Math.random() < VOWEL_CHANCE;
+        const bag = (useVowel && vowelBag.length) ? vowelBag : (consonantBag.length ? consonantBag : null);
+        if (!bag) { createLetterBags(); return getRandomLetter(); }
+        return bag[Math.floor(Math.random() * bag.length)];
+    }
+
+    // --- Gameplay ---
+    function startGame() {
+        timer = GAME_TIME; updateTimerUI();
+        grid.style.pointerEvents = 'auto';
+        timerInterval = setInterval(() => {
+            timer--; updateTimerUI();
+            if (timer <= 0) endGame();
+        }, 1000);
+    }
+    
+    function endGame() {
+        clearInterval(timerInterval);
+        grid.style.pointerEvents = 'none';
+        saveScore(score);
+        showEndGameScreen();
+    }
+
+    function resetGame() {
+        endGameModal.classList.add('hidden');
+        score = 0;
+        foundWords = [];
+        updateScoreDisplay(); createGrid(); clearSelection();
+        showWelcomeScreen();
+    }
+    
+    // --- Input & Word Logic ---
+    function handleInteraction(tile) {
+        if (!tile || !isMouseDown) return;
+
+        const lastSelected = selectedTiles[selectedTiles.length - 1];
+        
+        if (selectedTiles.length > 1 && tile === selectedTiles[selectedTiles.length - 2]) {
+            const lastTile = selectedTiles.pop();
+            lastTile.classList.remove('selected');
+        } else if (!selectedTiles.includes(tile) && (!lastSelected || isAdjacent(tile, lastSelected))) {
+            selectedTiles.push(tile);
+            tile.classList.add('selected');
+        }
+        
+        updateCurrentWord();
+        drawLines();
+    }
+    
+    function isAdjacent(t1, t2) {
+        if (!t1 || !t2) return false;
+        const id1 = parseInt(t1.dataset.id), id2 = parseInt(t2.dataset.id);
+        const [c1, r1] = [id1 % GRID_COLS, Math.floor(id1 / GRID_COLS)];
+        const [c2, r2] = [id2 % GRID_COLS, Math.floor(id2 / GRID_COLS)];
+        return Math.abs(c1 - c2) <= 1 && Math.abs(r1 - r2) <= 1;
+    }
+
+    function submitWord() {
+        const word = selectedTiles.map(t => t.dataset.letter).join('');
+        if (word.length >= 3 && wordSet.has(word)) {
+            let wordScore = selectedTiles.reduce((sum, t) => sum + parseInt(t.dataset.points), 0);
+            foundWords.push({ word, score: wordScore });
+            createFlyingScore(wordScore, selectedTiles[0]);
+            triggerConfetti(selectedTiles);
+            setTimeout(() => { score += wordScore; updateScoreDisplay(); }, 500);
+            replaceSelectedTiles();
+        }
+        clearSelection();
+    }
+
+    function replaceSelectedTiles() {
+        selectedTiles.forEach(tile => {
+            const letter = getRandomLetter();
+            const points = letterConfig[letter].p;
+            tile.dataset.letter = letter; 
+            tile.dataset.points = points;
+            tile.style.transform = 'scale(0)';
+            setTimeout(() => {
+                tile.innerHTML = `<span>${letter}<sub class="text-xs font-semibold ml-1">${points}</sub></span>`;
+                tile.style.transform = 'scale(1)';
+            }, 200);
+        });
+    }
+    
+    function clearSelection() {
+        selectedTiles.forEach(t => t.classList.remove('selected'));
+        selectedTiles = [];
+        updateCurrentWord(); 
+        drawLines();
+    }
+
+    // --- Leaderboard ---
+    function saveScore(s) {
+        if (s === 0) return;
+        const scores = getHighScores();
+        scores.push({ score: s, date: new Date().toLocaleDateString() });
+        scores.sort((a, b) => b.score - a.score);
+        localStorage.setItem('wordRushHighScores', JSON.stringify(scores.slice(0, 5)));
+    }
+    function getHighScores() { return JSON.parse(localStorage.getItem('wordRushHighScores')) || []; }
+    
+    // --- UI & Animations ---
+    function updateScoreDisplay() {
+        scoreEl.textContent = score;
+        scoreEl.classList.add('animate-pulse-score');
+        scoreEl.addEventListener('animationend', () => scoreEl.classList.remove('animate-pulse-score'), { once: true });
+        scoreProgressBar.style.width = `${Math.min((score % 100) / 100 * 100, 100)}%`;
+    }
+    
+    function updateTimerUI() {
+        timerEl.textContent = timer;
+        const percent = timer / GAME_TIME;
+        const dashOffset = 100 * (1 - percent);
+        timerProgress.style.strokeDashoffset = dashOffset;
+
+        if (timer <= 10) {
+            timerProgress.style.stroke = '#ef4444'; // red-500
+            timerContainer.classList.add('timer-urgent');
+        } else if (timer <= 30) {
+            timerProgress.style.stroke = '#f59e0b'; // amber-500
+            timerContainer.classList.remove('timer-urgent');
+        } else {
+            timerProgress.style.stroke = '#22c55e'; // green-500
+            timerContainer.classList.remove('timer-urgent');
+        }
+    }
+
+    function triggerConfetti(tiles) {
+        tiles.forEach(tile => {
+            const rect = tile.getBoundingClientRect();
+            for (let i = 0; i < 10; i++) {
+                const p = document.createElement('div'); p.className = 'particle';
+                const angle = Math.random() * Math.PI * 2, dist = Math.random() * 40 + 20;
+                p.style.setProperty('--transform-end',`translate(${Math.cos(angle)*dist}px,${Math.sin(angle)*dist}px)`);
+                p.style.left = `${rect.left+rect.width/2-4}px`; p.style.top = `${rect.top+rect.height/2-4}px`;
+                document.body.appendChild(p); setTimeout(() => p.remove(), 800);
+            }
+        });
+    }
+    
+    function createFlyingScore(points, startTile) {
+        const el = document.createElement('div'); el.className = 'flying-score';
+        el.textContent = `+${points}`;
+        const rect = startTile.getBoundingClientRect();
+        el.style.left = `${rect.left}px`; el.style.top = `${rect.top}px`;
+        document.body.appendChild(el); setTimeout(() => el.remove(), 1500);
+    }
+
+    function updateCurrentWord() {
+        currentWordLettersEl.innerHTML = selectedTiles.map(t => `<span class="current-letter bg-white text-blue-500 font-bold text-2xl p-2 rounded-md shadow-sm">${t.dataset.letter}</span>`).join('');
+    }
+
+    function showWelcomeScreen(error = null) {
+        modalContent.innerHTML = `
+            <div class="bg-white rounded-2xl shadow-2xl p-8 text-center modal-enter">
+                <h1 class="text-5xl font-black text-slate-800 tracking-tighter mb-2"><span class="text-5xl">🐇</span> Word Rush</h1>
+                <p class="text-slate-500 mb-6">The fast-paced word finding game!</p>
+                <div class="text-left space-y-3 bg-slate-100 p-4 rounded-lg mb-8">
+                    <h3 class="text-lg font-bold text-slate-700 text-center mb-3">How to Play</h3>
+                    <ul class="space-y-3">
+                        <li class="flex items-start">
+                            <svg class="h-6 w-6 text-green-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                            <span><strong>Connect letters</strong> to form words of 3 or more.</span>
+                        </li>
+                        <li class="flex items-start">
+                             <svg class="h-6 w-6 text-green-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                            <span><strong>Swipe tiles</strong> to build your word. Release to submit!</span>
+                        </li>
+                        <li class="flex items-start">
+                             <svg class="h-6 w-6 text-green-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                            <span>Race the <strong>60-second timer</strong> to get the highest score!</span>
+                        </li>
+                    </ul>
+                </div>
+                ${error ? `<p class="text-red-500 mb-4">${error}</p>` : ''}
+                <button id="modal-button" class="bg-blue-500 hover:bg-blue-600 w-full text-white font-bold py-4 px-8 rounded-lg text-xl shadow-lg transition-transform hover:scale-105">Let's Go!</button>
+            </div>
+        `;
+        gameContentEl.classList.add('blurred');
+        messageModal.classList.remove('hidden');
+        document.getElementById('modal-button').onclick = () => {
+            gameContentEl.classList.remove('blurred');
+            messageModal.classList.add('hidden');
+            startGame();
+        };
+    }
+
+    function showEndGameScreen() {
+        const highScores = getHighScores();
+        const leaderboardHTML = highScores.length ? highScores.map((s, i) => `
+            <li class="flex justify-between items-center p-2 rounded-lg ${i === 0 ? 'bg-yellow-200' : ''}">
+                <span class="font-bold text-slate-700">${i + 1}. ${s.score} points</span>
+                <span class="text-sm text-slate-500">${s.date}</span>
+            </li>`).join('') : '<li class="text-slate-500 text-center p-2">No scores yet!</li>';
+        const foundWordsHTML = foundWords.length ? foundWords.map(fw => `
+            <div class="flex justify-between text-sm"><span class="font-semibold">${fw.word.toUpperCase()}</span><span>+${fw.score}</span></div>
+        `).join('') : '<p class="text-sm text-slate-500">No words found.</p>';
+
+        endGameModal.innerHTML = `
+            <div class="bg-white rounded-2xl shadow-2xl p-6 text-center w-full max-w-sm mx-auto modal-enter">
+                <h2 class="text-3xl font-black text-blue-500">Great Game!</h2>
+                <p class="text-slate-600 mb-2">Your final score is:</p>
+                <p class="text-6xl font-black text-slate-800 mb-4">${score}</p>
+                <div class="grid grid-cols-2 gap-4 mb-6 text-left">
+                    <div>
+                        <h3 class="text-xl font-bold text-slate-700 mb-2 border-b pb-2">High Scores</h3>
+                        <ol class="space-y-1">${leaderboardHTML}</ol>
+                    </div>
+                    <div>
+                         <h3 class="text-xl font-bold text-slate-700 mb-2 border-b pb-2">Words Found</h3>
+                         <div class="space-y-1 max-h-32 overflow-y-auto pr-2">${foundWordsHTML}</div>
+                    </div>
+                </div>
+                <button id="play-again-button" class="bg-blue-500 hover:bg-blue-600 w-full text-white font-bold py-3 px-8 rounded-lg text-lg shadow-lg transition-transform hover:scale-105">Play Again</button>
+            </div>`;
+        gameContentEl.classList.add('blurred');
+        endGameModal.classList.remove('hidden');
+        document.getElementById('play-again-button').onclick = resetGame;
+    }
+
+    // --- Canvas & Listeners ---
+    function cacheTilePositions() {
+        tilePositions = [];
+        for(const tile of grid.children) {
+            const rect = tile.getBoundingClientRect();
+            tilePositions.push({
+                el: tile,
+                center: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+                hitRadius: tile.offsetWidth * 0.4 // Tighter hit radius
+            });
+        }
+    }
+
+    function resizeCanvas() { 
+        const r = grid.getBoundingClientRect();
+        lineCanvas.width = r.width; lineCanvas.height = r.height;
+        cacheTilePositions();
+        drawLines(); 
+    }
+    
+    function drawLines() {
+        clearLines();
+        if (selectedTiles.length < 2) return;
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(59, 130, 246, 0.8)';
+        ctx.lineWidth = 12;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        
+        selectedTiles.forEach((tile, i) => {
+            const center = getTileCenter(tile);
+            if (i === 0) {
+                ctx.moveTo(center.x, center.y);
+            } else {
+                ctx.lineTo(center.x, center.y);
+            }
+        });
+        
+        ctx.stroke();
+    }
+    
+    function clearLines() { ctx.clearRect(0, 0, lineCanvas.width, lineCanvas.height); }
+    
+    function getTileCenter(tile) {
+        const gRect = grid.getBoundingClientRect();
+        const tRect = tile.getBoundingClientRect();
+        return { x: tRect.left + tRect.width / 2 - gRect.left, y: tRect.top + tRect.height / 2 - gRect.top };
+    }
+    
+    function setupEventListeners() {
+        const getTileFromEvent = (e) => {
+            const touch = e.touches ? e.touches[0] : e;
+            const point = { x: touch.clientX, y: touch.clientY };
+            
+            let closestTile = null;
+            let minDistance = Infinity;
+
+            tilePositions.forEach(tilePos => {
+                const distance = Math.sqrt((point.x - tilePos.center.x)**2 + (point.y - tilePos.center.y)**2);
+                if (distance < minDistance && distance < tilePos.hitRadius) {
+                    minDistance = distance;
+                    closestTile = tilePos.el;
+                }
+            });
+            return closestTile;
+        };
+
+        const startInteraction = e => {
+            e.preventDefault();
+            isMouseDown = true;
+            clearSelection();
+            const tile = getTileFromEvent(e);
+            handleInteraction(tile);
+        };
+
+        const moveInteraction = e => {
+            if (!isMouseDown) return;
+            e.preventDefault();
+            const tile = getTileFromEvent(e);
+            handleInteraction(tile);
+        };
+
+        const endInteraction = () => {
+            if (!isMouseDown) return;
+            submitWord();
+            isMouseDown = false;
+        };
+        
+        grid.addEventListener('pointerdown', startInteraction);
+        grid.addEventListener('pointermove', moveInteraction);
+        grid.addEventListener('pointerup', endInteraction);
+        grid.addEventListener('pointerleave', endInteraction); 
+
+        window.addEventListener('resize', resizeCanvas);
+    }
+
+    // --- Smart Board Generation ---
+    function generateSmartBoard() {
+        for (let attempts = 0; attempts < 50; attempts++) {
+            const board = new Array(GRID_SIZE).fill(null);
+            const wordsToPlace = getWordsForBoard();
+            let placedSuccessfully = true;
+
+            for (const word of wordsToPlace) {
+                const path = findPathForWord(board, word);
+                if (path) {
+                    path.forEach((pos, i) => {
+                        board[pos] = word[i];
+                    });
+                } else {
+                    placedSuccessfully = false;
+                    break;
+                }
+            }
+            if (placedSuccessfully) {
+                for (let i = 0; i < GRID_SIZE; i++) {
+                    if (board[i] === null) {
+                        board[i] = getRandomLetter();
+                    }
+                }
+                return board;
+            }
+        }
+        return Array.from({ length: GRID_SIZE }, () => getRandomLetter());
+    }
+
+    function getWordsForBoard() {
+        const longWords = suitableWords.filter(w => w.length >= 5);
+        const shortWords = suitableWords.filter(w => w.length >= 3 && w.length <= 4);
+        let words = [];
+        if (longWords.length > 0) {
+            words.push(longWords[Math.floor(Math.random() * longWords.length)]);
+        }
+        for (let i = 0; i < 3; i++) {
+             if(shortWords.length > 0) words.push(shortWords[Math.floor(Math.random() * shortWords.length)]);
+        }
+        return words.sort(() => Math.random() - 0.5);
+    }
+    
+    function findPathForWord(board, word) {
+        const emptyIndices = [];
+        board.forEach((cell, i) => { if (cell === null) emptyIndices.push(i); });
+        emptyIndices.sort(() => Math.random() - 0.5);
+
+        for (const startIndex of emptyIndices) {
+            const path = [startIndex];
+            if (findPathRecursive(board, word, path, 1)) {
+                return path;
+            }
+        }
+        return null;
+    }
+
+    function findPathRecursive(board, word, path) {
+        if (path.length === word.length) {
+            return true;
+        }
+        const lastPos = path[path.length - 1];
+        const [lastX, lastY] = [lastPos % GRID_COLS, Math.floor(lastPos / GRID_COLS)];
+        
+        let neighbors = [];
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+                if (dx === 0 && dy === 0) continue;
+                const [nx, ny] = [lastX + dx, lastY + dy];
+                if (nx >= 0 && nx < GRID_COLS && ny >= 0 && ny < GRID_COLS) {
+                    neighbors.push(ny * GRID_COLS + nx);
+                }
+            }
+        }
+        neighbors.sort(() => Math.random() - 0.5);
+
+        for (const neighborPos of neighbors) {
+            if (!path.includes(neighborPos) && (board[neighborPos] === null || board[neighborPos] === word[path.length])) {
+                path.push(neighborPos);
+                if (findPathRecursive(board, word, path)) {
+                    return true;
+                }
+                path.pop(); // backtrack
+            }
+        }
+        return false;
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
