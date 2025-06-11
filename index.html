@@ -118,9 +118,11 @@
 
     // --- Config ---
     const [GRID_SIZE, GRID_COLS, GAME_TIME] = [16, 4, 60];
-    const letterConfig={'A':{c:9,p:1},'B':{c:2,p:3},'C':{c:2,p:3},'D':{c:4,p:2},'E':{c:12,p:1},'F':{c:2,p:4},'G':{c:3,p:2},'H':{c:2,p:4},'I':{c:9,p:1},'J':{c:1,p:8},'K':{c:1,p:5},'L':{c:4,p:1},'M':{c:2,p:3},'N':{c:6,p:1},'O':{c:8,p:1},'P':{c:2,p:3},'Q':{c:1,p:10},'R':{c:6,p:1},'S':{c:4,p:1},'T':{c:6,p:1},'U':{c:4,p:1},'V':{c:2,p:4},'W':{c:2,p:4},'X':{c:1,p:8},'Y':{c:2,p:4},'Z':{c:1,p:10}};
+    const letterConfig={'A':{p:1},'B':{p:3},'C':{p:3},'D':{p:2},'E':{p:1},'F':{p:4},'G':{p:2},'H':{p:4},'I':{p:1},'J':{p:8},'K':{p:5},'L':{p:1},'M':{p:3},'N':{p:1},'O':{p:1},'P':{p:3},'Q':{p:10},'R':{p:1},'S':{p:1},'T':{p:1},'U':{p:1},'V':{p:4},'W':{p:4},'X':{p:8},'Y':{p:4},'Z':{p:10}};
     const VOWELS = ['A', 'E', 'I', 'O', 'U'];
-    
+    const HARD_CONSONANTS = ['J', 'K', 'Q', 'X', 'Z'];
+    const LETTER_BAG_STRING = "EEEEEEEEEEEEAAAAAAAAAARRRRRRRRRRIIIIIIIIIOOOOOOOOTTTTTTTTNNNNNNNNSSSSSSSLLLLLLUUUUDDDDGGGBBCCMMPPFFHHVVWWYYKJXQZ";
+
     // --- DOM Elements ---
     const gameContentEl = document.getElementById('game-content');
     const grid = document.getElementById('grid'), lineCanvas = document.getElementById('line-canvas'), ctx = lineCanvas.getContext('2d');
@@ -134,7 +136,7 @@
 
     // --- State ---
     let score = 0, timer = GAME_TIME, timerInterval, wordSet = new Set(), foundWords = [], selectedTiles = [], isMouseDown = false;
-    let tilePositions = [], letterBag = [];
+    let tilePositions = [], dictionaryTrie;
 
      // --- Trie Data Structure for Fast Lookups ---
     class TrieNode {
@@ -159,7 +161,6 @@
             return isPrefix ? true : node.isEndOfWord;
         }
     }
-    let dictionaryTrie;
 
     // --- Init ---
     async function main() {
@@ -194,24 +195,14 @@
             showWelcomeScreen("Error: Could not load dictionary."); 
         }
         
-        createLetterBag();
         createGrid();
         setupEventListeners();
         displayHighScore();
         showWelcomeScreen();
     }
     
-    function createLetterBag() {
-        letterBag = [];
-        for (const letter in letterConfig) {
-            for (let i = 0; i < letterConfig[letter].c; i++) {
-                letterBag.push(letter);
-            }
-        }
-    }
-
     function createGrid() {
-        const board = generateSmartBoard();
+        const board = generateAndValidateBoard();
         grid.innerHTML = '';
         for (let i = 0; i < GRID_SIZE; i++) {
             const letter = board[i];
@@ -233,16 +224,15 @@
     }
     
     function getRandomLetter() {
-        if (letterBag.length === 0) createLetterBag();
-        return letterBag[Math.floor(Math.random() * letterBag.length)];
+        return LETTER_BAG_STRING[Math.floor(Math.random() * LETTER_BAG_STRING.length)];
     }
 
     function getBonusType() {
         const rand = Math.random();
-        if (rand < 0.05) return { type: 'Time', label: '+5s', class: 'bonus-Time' };
-        if (rand < 0.12) return { type: 'DW', label: 'DW', class: 'bonus-DW' };
-        if (rand < 0.20) return { type: 'TL', label: 'TL', class: 'bonus-TL' };
-        if (rand < 0.30) return { type: 'DL', label: 'DL', class: 'bonus-DL' };
+        if (rand < 0.08) return { type: 'Time', label: '+5s', class: 'bonus-Time' };
+        if (rand < 0.18) return { type: 'DW', label: 'DW', class: 'bonus-DW' };
+        if (rand < 0.28) return { type: 'TL', label: 'TL', class: 'bonus-TL' };
+        if (rand < 0.40) return { type: 'DL', label: 'DL', class: 'bonus-DL' };
         return null;
     }
 
@@ -336,8 +326,19 @@
     }
 
     function replaceSelectedTiles() {
+        let currentBoardLetters = Array.from(grid.children).map(t => t.dataset.letter);
+        const emptyIndices = [];
         selectedTiles.forEach(tile => {
-            const letter = getRandomLetter();
+            const index = parseInt(tile.dataset.id);
+            currentBoardLetters[index] = null;
+            emptyIndices.push(index);
+        });
+
+        const newBoard = generateAndValidateBoard(currentBoardLetters);
+        
+        selectedTiles.forEach((tile, i) => {
+            const index = parseInt(tile.dataset.id);
+            const letter = newBoard[index];
             const points = letterConfig[letter].p;
             tile.dataset.letter = letter; 
             tile.dataset.points = points;
@@ -680,30 +681,77 @@
     }
 
     // --- Smart Board Generation ---
-    function generateSmartBoard() {
-        for (let attempts = 0; attempts < 100; attempts++) {
-            const board = new Array(GRID_SIZE).fill(null);
-            let tempLetterBag = [...letterBag];
-            for (let i = 0; i < GRID_SIZE; i++) {
-                const letterIndex = Math.floor(Math.random() * tempLetterBag.length);
-                board[i] = tempLetterBag.splice(letterIndex, 1)[0];
-            }
+    function generateAndValidateBoard(currentBoard = null) {
+        let board;
+        for (let attempts = 0; attempts < 200; attempts++) { // Limit attempts to prevent infinite loops
+            board = currentBoard ? [...currentBoard] : new Array(GRID_SIZE).fill(null);
 
-            const foundWords = solveBoard(board);
-            if(foundWords.size >= 4 && Array.from(foundWords).some(w => w.length >= 5)) {
-                return board;
+            // Fill any empty spots on the board
+            for (let i = 0; i < GRID_SIZE; i++) {
+                if (board[i] === null) {
+                    board[i] = getRandomLetter();
+                }
             }
+            
+            if (isBoardPlayable(board)) {
+                return board; // This board is good, use it
+            }
+            
+            board = null; // If not playable, reset for a full regeneration
         }
         
-        return Array.from({ length: GRID_SIZE }, () => getRandomLetter());
+        // Fallback after many attempts
+        console.warn("Failed to generate a high-quality board, using last random attempt.");
+        return board || Array.from({ length: GRID_SIZE }, () => getRandomLetter());
+    }
+
+    function isBoardPlayable(board) {
+        // Rule 1: Vowel Count
+        const vowelCount = board.filter(l => VOWELS.includes(l)).length;
+        if (vowelCount < 3 || vowelCount > 6) return false;
+
+        // Rule 2: Hard Consonant Limit
+        const hardCount = board.filter(l => HARD_CONSONANTS.includes(l)).length;
+        if (hardCount > 1) return false;
+        
+        // Rule 3: Q must have a U neighbor
+        const qIndex = board.indexOf('Q');
+        if(qIndex !== -1) {
+            const neighbors = getNeighbors(qIndex, board);
+            if(!neighbors.some(l => l === 'U')) return false;
+        }
+
+        // Rule 4: Solver Check
+        const foundWords = solveBoard(board);
+        const fourLetterWords = Array.from(foundWords).filter(w => w.length >= 4);
+        const threeLetterWords = Array.from(foundWords).filter(w => w.length === 3);
+
+        if (fourLetterWords.length < 2 || threeLetterWords.length < 2) {
+            return false;
+        }
+
+        return true;
+    }
+
+    function getNeighbors(index, board) {
+        const neighbors = [];
+        const [x, y] = [index % GRID_COLS, Math.floor(index / GRID_COLS)];
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+                if (dx === 0 && dy === 0) continue;
+                const [nx, ny] = [x + dx, y + dy];
+                if (nx >= 0 && nx < GRID_COLS && ny >= 0 && ny < GRID_COLS) {
+                    neighbors.push(board[ny * GRID_COLS + nx]);
+                }
+            }
+        }
+        return neighbors;
     }
 
     function solveBoard(board) {
         const found = new Set();
-        const boardLetters = board.map(l => l[0]);
-
         for (let i = 0; i < GRID_SIZE; i++) {
-            findWordsRecursive(i, '', [i], found, boardLetters);
+            findWordsRecursive(i, '', [i], found, board);
         }
         return found;
     }
