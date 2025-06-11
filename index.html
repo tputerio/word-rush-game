@@ -244,6 +244,8 @@
 
     // --- Gameplay ---
     function startGame() {
+        let personalPlayCount = parseInt(localStorage.getItem('wordRushPersonalPlayCount')) || 0;
+        localStorage.setItem('wordRushPersonalPlayCount', personalPlayCount + 1);
         displayHighScore();
         timer = GAME_TIME; updateTimerUI();
         grid.style.pointerEvents = 'auto';
@@ -381,6 +383,7 @@
     async function saveGlobalScore(name, scoreToSave) {
         if(!name || scoreToSave === 0 || !db) return;
         try {
+            localStorage.setItem('wordRushPlayerName', name);
             await addDoc(collection(db, "scores"), {
                 name: name,
                 score: scoreToSave,
@@ -498,13 +501,15 @@
                         Leaderboard <span class="text-xl ml-1">🌍</span>
                     </button>
                  </div>
-                 ${error ? `<p class="text-red-500 mt-4">${error}</p>` : ''}
                  <p class="text-xs text-slate-400 mt-2">${playCount.toLocaleString()} games played globally</p>
+                 <p class="text-xs text-slate-400">You've played <span id="personal-play-count">0</span> times</p>
+                 ${error ? `<p class="text-red-500 mt-4">${error}</p>` : ''}
             </div>
         `;
         gameContentEl.classList.add('blurred');
         messageModal.classList.remove('hidden');
         document.getElementById('welcome-high-score').textContent = getLocalHighScore();
+        document.getElementById('personal-play-count').textContent = localStorage.getItem('wordRushPersonalPlayCount') || 0;
         document.getElementById('modal-button').onclick = async () => {
             const statsRef = doc(db, "gameStats", "stats");
             await updateDoc(statsRef, { playCount: increment(1) });
@@ -619,11 +624,12 @@
 
         
         document.getElementById('play-again-button').onclick = resetGame;
+        const nameInput = document.getElementById('player-name');
+        nameInput.value = localStorage.getItem('wordRushPlayerName') || '';
         document.getElementById('submit-global-score').onclick = async (e) => {
             const button = e.target;
             button.disabled = true;
             button.textContent = 'Submitting...';
-            const nameInput = document.getElementById('player-name');
             const playerName = nameInput.value.trim();
             if (playerName) {
                 await saveGlobalScore(playerName, score);
