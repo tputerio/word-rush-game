@@ -189,10 +189,8 @@
             const res = await fetch('https://raw.githubusercontent.com/redbo/scrabble/master/dictionary.txt');
             const words = (await res.text()).split('\n').map(w => w.trim().toUpperCase()).filter(w => w.length >= 3);
             wordSet = new Set(words);
-            // Add custom words
             wordSet.add("ZEN");
             wordSet.add("KIN");
-
             dictionaryTrie = new Trie();
             for(const word of wordSet) dictionaryTrie.insert(word);
         } catch (e) { 
@@ -331,16 +329,14 @@
 
     function replaceSelectedTiles() {
         let currentBoardLetters = Array.from(grid.children).map(t => t.dataset.letter);
-        const emptyIndices = [];
         selectedTiles.forEach(tile => {
             const index = parseInt(tile.dataset.id);
             currentBoardLetters[index] = null;
-            emptyIndices.push(index);
         });
 
         const newBoard = generateAndValidateBoard(currentBoardLetters);
         
-        selectedTiles.forEach((tile, i) => {
+        selectedTiles.forEach((tile) => {
             const index = parseInt(tile.dataset.id);
             const letter = newBoard[index];
             const points = letterConfig[letter].p;
@@ -465,16 +461,16 @@
                     <h3 class="text-lg font-bold text-slate-700 text-center mb-3">How to Play</h3>
                     <ul class="space-y-3">
                         <li class="flex items-start">
-                             <svg class="h-6 w-6 text-green-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                            <span><strong>Swipe adjacent tiles</strong> (including diagonals) to build words. Release to submit!</span>
+                            <span class="text-2xl mr-3">🏆</span>
+                            <span><strong>Your Goal:</strong> Score as many points as you can in 60 seconds!</span>
                         </li>
                         <li class="flex items-start">
-                             <svg class="h-6 w-6 text-yellow-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                            <span>Use <strong>Bonus Tiles</strong>: DL (Double Letter), TL (Triple Letter), and DW (Double Word).</span>
+                             <span class="text-2xl mr-3">👉</span>
+                            <span><strong>How to Score:</strong> Swipe adjacent letters (including diagonals) to make words (3+ letters). Release to submit!</span>
                         </li>
                          <li class="flex items-start">
-                             <svg class="h-6 w-6 text-blue-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                            <span>Get a <strong>Length Bonus</strong> for words with 4 or more letters!</span>
+                            <span class="text-2xl mr-3">⭐</span>
+                            <span><strong>Pro-Tip:</strong> Use Bonus Tiles (DL, TL, DW) and find long words for massive point bonuses!</span>
                         </li>
                     </ul>
                 </div>
