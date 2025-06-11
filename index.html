@@ -189,6 +189,10 @@
             const res = await fetch('https://raw.githubusercontent.com/redbo/scrabble/master/dictionary.txt');
             const words = (await res.text()).split('\n').map(w => w.trim().toUpperCase()).filter(w => w.length >= 3);
             wordSet = new Set(words);
+            // Add custom words
+            wordSet.add("ZEN");
+            wordSet.add("KIN");
+
             dictionaryTrie = new Trie();
             for(const word of wordSet) dictionaryTrie.insert(word);
         } catch (e) { 
@@ -683,10 +687,9 @@
     // --- Smart Board Generation ---
     function generateAndValidateBoard(currentBoard = null) {
         let board;
-        for (let attempts = 0; attempts < 200; attempts++) { // Limit attempts to prevent infinite loops
+        for (let attempts = 0; attempts < 200; attempts++) {
             board = currentBoard ? [...currentBoard] : new Array(GRID_SIZE).fill(null);
 
-            // Fill any empty spots on the board
             for (let i = 0; i < GRID_SIZE; i++) {
                 if (board[i] === null) {
                     board[i] = getRandomLetter();
@@ -694,34 +697,29 @@
             }
             
             if (isBoardPlayable(board)) {
-                return board; // This board is good, use it
+                return board;
             }
             
-            board = null; // If not playable, reset for a full regeneration
+            board = null; 
         }
         
-        // Fallback after many attempts
         console.warn("Failed to generate a high-quality board, using last random attempt.");
         return board || Array.from({ length: GRID_SIZE }, () => getRandomLetter());
     }
 
     function isBoardPlayable(board) {
-        // Rule 1: Vowel Count
         const vowelCount = board.filter(l => VOWELS.includes(l)).length;
-        if (vowelCount < 3 || vowelCount > 6) return false;
+        if (vowelCount < 4 || vowelCount > 7) return false;
 
-        // Rule 2: Hard Consonant Limit
         const hardCount = board.filter(l => HARD_CONSONANTS.includes(l)).length;
         if (hardCount > 1) return false;
         
-        // Rule 3: Q must have a U neighbor
         const qIndex = board.indexOf('Q');
         if(qIndex !== -1) {
             const neighbors = getNeighbors(qIndex, board);
             if(!neighbors.some(l => l === 'U')) return false;
         }
 
-        // Rule 4: Solver Check
         const foundWords = solveBoard(board);
         const fourLetterWords = Array.from(foundWords).filter(w => w.length >= 4);
         const threeLetterWords = Array.from(foundWords).filter(w => w.length === 3);
