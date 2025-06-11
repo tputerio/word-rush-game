@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Word Rush</title>
+    <title>Word Worm</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
     <style>
@@ -65,17 +65,8 @@
     <div id="game-content">
         <div class="text-center mb-3">
             <h1 class="text-3xl font-black text-slate-800 tracking-tighter flex items-center justify-center">
-                 <svg width="32" height="32" viewBox="0 0 44 44" class="inline-block mr-2">
-                    <rect x="0" y="0" width="20" height="20" rx="4" class="fill-blue-500"></rect>
-                    <text x="10" y="11" class="font-sans font-black text-sm fill-white" text-anchor="middle" dominant-baseline="middle">R</text>
-                    <rect x="24" y="0" width="20" height="20" rx="4" class="fill-blue-500"></rect>
-                    <text x="34" y="11" class="font-sans font-black text-sm fill-white" text-anchor="middle" dominant-baseline="middle">U</text>
-                    <rect x="0" y="24" width="20" height="20" rx="4" class="fill-blue-500"></rect>
-                    <text x="10" y="35" class="font-sans font-black text-sm fill-white" text-anchor="middle" dominant-baseline="middle">S</text>
-                    <rect x="24" y="24" width="20" height="20" rx="4" class="fill-blue-500"></rect>
-                    <text x="34" y="35" class="font-sans font-black text-sm fill-white" text-anchor="middle" dominant-baseline="middle">H</text>
-                </svg>
-                <span>Word Rush</span>
+                 <img src="https://raw.githubusercontent.com/tputerio/word-rush-game/main/word-worm-logo.png" alt="Word Worm Logo" class="w-9 h-9 mr-2">
+                <span>Word Worm</span>
             </h1>
         </div>
         <div class="grid grid-cols-3 items-center text-center bg-white rounded-xl shadow-lg p-2 mb-3">
@@ -462,17 +453,8 @@
         modalContent.innerHTML = `
             <div class="bg-white rounded-2xl shadow-2xl p-6 text-center modal-enter">
                 <h1 class="text-4xl font-black text-slate-800 tracking-tighter mb-1 flex items-center justify-center">
-                    <svg width="40" height="40" viewBox="0 0 44 44" class="inline-block mr-2">
-                        <rect x="0" y="0" width="20" height="20" rx="4" class="fill-blue-500"></rect>
-                        <text x="10" y="11" class="font-sans font-black text-sm fill-white" text-anchor="middle" dominant-baseline="middle">R</text>
-                        <rect x="24" y="0" width="20" height="20" rx="4" class="fill-blue-500"></rect>
-                        <text x="34" y="11" class="font-sans font-black text-sm fill-white" text-anchor="middle" dominant-baseline="middle">U</text>
-                        <rect x="0" y="24" width="20" height="20" rx="4" class="fill-blue-500"></rect>
-                        <text x="10" y="35" class="font-sans font-black text-sm fill-white" text-anchor="middle" dominant-baseline="middle">S</text>
-                        <rect x="24" y="24" width="20" height="20" rx="4" class="fill-blue-500"></rect>
-                        <text x="34" y="35" class="font-sans font-black text-sm fill-white" text-anchor="middle" dominant-baseline="middle">H</text>
-                    </svg>
-                    <span>Word Rush</span>
+                    <img src="https://raw.githubusercontent.com/tputerio/word-rush-game/main/word-worm-logo.png" alt="Word Worm Logo" class="w-12 h-12 mr-2">
+                    <span>Word Worm</span>
                 </h1>
                 <p class="text-slate-500 text-sm mb-4">The fast-paced word finding game!</p>
                 <div class="text-left space-y-2 bg-slate-100 p-4 rounded-lg mb-4">
@@ -492,17 +474,17 @@
                         </li>
                     </ul>
                 </div>
-                 <button id="modal-button" class="bg-blue-500 hover:bg-blue-600 w-full text-white font-bold py-3 px-6 rounded-lg text-lg shadow-lg transition-transform hover:scale-105 mb-3">Let's Go!</button>
+                 <button id="modal-button" class="bg-green-500 hover:bg-green-600 w-full text-white font-bold py-3 px-6 rounded-lg text-lg shadow-lg transition-transform hover:scale-105 mb-3">Let's Go!</button>
                  <div class="flex justify-between items-center border-t border-slate-200 pt-3">
                     <div class="font-bold text-slate-600 text-base flex items-center">
                         <span class="text-xl mr-1">🏆</span>Your High: <span id="welcome-high-score" class="ml-1">0</span>
                     </div>
-                    <button id="show-leaderboard-button" class="font-bold text-blue-500 hover:text-blue-600 text-base flex items-center">
+                    <button id="show-leaderboard-button" class="font-bold text-green-500 hover:text-green-600 text-base flex items-center">
                         Leaderboard <span class="text-xl ml-1">🌍</span>
                     </button>
                  </div>
-                 <p class="text-xs text-slate-400 mt-2">${playCount.toLocaleString()} games played globally</p>
-                 <p class="text-xs text-slate-400">You've played <span id="personal-play-count">0</span> times</p>
+                 <p class="text-xs text-slate-400 mt-2">You've played <span id="personal-play-count">0</span> games!</p>
+                 <p class="text-xs text-slate-400">${playCount.toLocaleString()} games played globally</p>
                  ${error ? `<p class="text-red-500 mt-4">${error}</p>` : ''}
             </div>
         `;
@@ -541,7 +523,7 @@
                  leaderboardHTML = highScores.map((s, i) => `
                     <li class="flex justify-between items-center py-1 px-2">
                         <span class="font-bold text-slate-700">${i + 1}. ${s.name}</span>
-                        <span class="font-bold text-blue-500">${s.score}</span>
+                        <span class="font-bold text-green-500">${s.score}</span>
                     </li>`).join('');
             }
         } catch (e) {
@@ -560,12 +542,12 @@
 
     async function showEndGameScreen() {
         endGameModalContent.innerHTML = `<div class="bg-white rounded-2xl shadow-2xl p-6 text-center w-full max-w-sm mx-auto modal-enter">
-            <h2 class="text-3xl font-black text-blue-500">Time's Up!</h2>
+            <h2 class="text-3xl font-black text-green-500">Time's Up!</h2>
             <p class="text-slate-600 mb-2">Your final score is:</p>
             <p class="text-6xl font-black text-slate-800 mb-4">${score}</p>
             <div id="leaderboard-loading" class="text-slate-500 p-2">Fetching Scores...</div>
             <div id="leaderboard-content" class="hidden"></div>
-            <button id="play-again-button" class="bg-blue-500 hover:bg-blue-600 w-full text-white font-bold py-3 px-8 rounded-lg text-lg shadow-lg transition-transform hover:scale-105 mt-6">Play Again</button>
+            <button id="play-again-button" class="bg-green-500 hover:bg-green-600 w-full text-white font-bold py-3 px-8 rounded-lg text-lg shadow-lg transition-transform hover:scale-105 mt-6">Play Again</button>
         </div>`;
         gameContentEl.classList.add('blurred');
         endGameModal.classList.remove('hidden');
@@ -583,7 +565,7 @@
                  leaderboardHTML = highScores.map((s, i) => `
                     <li class="flex justify-between items-center py-1">
                         <span class="font-bold text-slate-700">${i + 1}. ${s.name}</span>
-                        <span class="font-bold text-blue-500">${s.score}</span>
+                        <span class="font-bold text-green-500">${s.score}</span>
                     </li>`).join('');
             }
         } catch (e) {
@@ -597,7 +579,7 @@
 
         const finalModalHTML = `
             <div class="bg-white rounded-2xl shadow-2xl p-6 text-center w-full max-w-sm mx-auto modal-enter">
-                <h2 class="text-3xl font-black text-blue-500">Great Game!</h2>
+                <h2 class="text-3xl font-black text-green-500">Great Game!</h2>
                 <p class="text-slate-600 mb-2">Your final score is:</p>
                 <p class="text-6xl font-black text-slate-800 mb-4">${score}</p>
                 
@@ -618,7 +600,7 @@
                          <div class="space-y-1 max-h-40 overflow-y-auto pr-2">${foundWordsHTML}</div>
                     </div>
                 </div>
-                <button id="play-again-button" class="bg-blue-500 hover:bg-blue-600 w-full text-white font-bold py-3 px-8 rounded-lg text-lg shadow-lg transition-transform hover:scale-105">Play Again</button>
+                <button id="play-again-button" class="bg-green-500 hover:bg-green-600 w-full text-white font-bold py-3 px-8 rounded-lg text-lg shadow-lg transition-transform hover:scale-105">Play Again</button>
             </div>`;
         endGameModalContent.innerHTML = `<div class="bg-white rounded-2xl shadow-2xl p-6 text-center w-full max-w-sm mx-auto modal-enter">${finalModalHTML}</div>`;
 
@@ -646,7 +628,7 @@
                     document.getElementById('leaderboard-list').innerHTML = highScores.map((s, i) => `
                         <li class="flex justify-between items-center py-1">
                             <span class="font-bold text-slate-700">${i + 1}. ${s.name}</span>
-                            <span class="font-bold text-blue-500">${s.score}</span>
+                            <span class="font-bold text-green-500">${s.score}</span>
                         </li>`).join('');
                 }
 
