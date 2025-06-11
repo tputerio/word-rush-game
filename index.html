@@ -117,7 +117,7 @@
     // --- Firebase SDKs ---
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
     import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
-    import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
+    import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit, doc, getDoc, updateDoc, increment } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
 
     // --- Config ---
     const [GRID_SIZE, GRID_COLS, GAME_TIME] = [16, 4, 60];
@@ -444,7 +444,18 @@
         currentWordLettersEl.innerHTML = selectedTiles.map(t => `<span class="current-letter bg-white text-blue-500 font-bold text-xl p-1.5 rounded-md shadow-sm">${t.dataset.letter}</span>`).join('');
     }
 
-    function showWelcomeScreen(error = null) {
+    async function showWelcomeScreen(error = null) {
+        let playCount = 0;
+        try {
+            const statsRef = doc(db, "gameStats", "stats");
+            const docSnap = await getDoc(statsRef);
+            if (docSnap.exists()) {
+                playCount = docSnap.data().playCount;
+            }
+        } catch(e) {
+            console.error("Could not fetch play count", e);
+        }
+
         modalContent.innerHTML = `
             <div class="bg-white rounded-2xl shadow-2xl p-6 text-center modal-enter">
                 <h1 class="text-4xl font-black text-slate-800 tracking-tighter mb-1 flex items-center justify-center">
@@ -488,12 +499,15 @@
                     </button>
                  </div>
                  ${error ? `<p class="text-red-500 mt-4">${error}</p>` : ''}
+                 <p class="text-xs text-slate-400 mt-2">${playCount.toLocaleString()} games played globally</p>
             </div>
         `;
         gameContentEl.classList.add('blurred');
         messageModal.classList.remove('hidden');
         document.getElementById('welcome-high-score').textContent = getLocalHighScore();
-        document.getElementById('modal-button').onclick = () => {
+        document.getElementById('modal-button').onclick = async () => {
+            const statsRef = doc(db, "gameStats", "stats");
+            await updateDoc(statsRef, { playCount: increment(1) });
             gameContentEl.classList.remove('blurred');
             messageModal.classList.add('hidden');
             startGame();
