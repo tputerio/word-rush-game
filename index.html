@@ -119,6 +119,7 @@
     // --- Config ---
     const [GRID_SIZE, GRID_COLS, GAME_TIME] = [16, 4, 60];
     const letterConfig={'A':{c:9,p:1},'B':{c:2,p:3},'C':{c:2,p:3},'D':{c:4,p:2},'E':{c:12,p:1},'F':{c:2,p:4},'G':{c:3,p:2},'H':{c:2,p:4},'I':{c:9,p:1},'J':{c:1,p:8},'K':{c:1,p:5},'L':{c:4,p:1},'M':{c:2,p:3},'N':{c:6,p:1},'O':{c:8,p:1},'P':{c:2,p:3},'Q':{c:1,p:10},'R':{c:6,p:1},'S':{c:4,p:1},'T':{c:6,p:1},'U':{c:4,p:1},'V':{c:2,p:4},'W':{c:2,p:4},'X':{c:1,p:8},'Y':{c:2,p:4},'Z':{c:1,p:10}};
+    const VOWELS = ['A', 'E', 'I', 'O', 'U'];
     
     // --- DOM Elements ---
     const gameContentEl = document.getElementById('game-content');
@@ -133,7 +134,7 @@
 
     // --- State ---
     let score = 0, timer = GAME_TIME, timerInterval, wordSet = new Set(), foundWords = [], selectedTiles = [], isMouseDown = false;
-    let tilePositions = [], letterBag = [], dictionaryTrie;
+    let tilePositions = [], letterBag = [];
 
      // --- Trie Data Structure for Fast Lookups ---
     class TrieNode {
@@ -158,6 +159,7 @@
             return isPrefix ? true : node.isEndOfWord;
         }
     }
+    let dictionaryTrie;
 
     // --- Init ---
     async function main() {
@@ -202,7 +204,9 @@
     function createLetterBag() {
         letterBag = [];
         for (const letter in letterConfig) {
-            for (let i = 0; i < letterConfig[letter].c; i++) letterBag.push(letter);
+            for (let i = 0; i < letterConfig[letter].c; i++) {
+                letterBag.push(letter);
+            }
         }
     }
 
@@ -691,7 +695,6 @@
             }
         }
         
-        // Fallback to purely random board if solver fails
         return Array.from({ length: GRID_SIZE }, () => getRandomLetter());
     }
 
