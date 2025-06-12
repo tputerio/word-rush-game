@@ -177,24 +177,48 @@
         const modalButton = document.getElementById('modal-button');
         const loadingErrorEl = document.getElementById('loading-error');
         const globalPlayCountSpan = document.getElementById('global-play-count');
+        const showLeaderboardButton = document.getElementById('show-leaderboard-button');
 
-        // Parallelize fetching dictionary and connecting to Firebase
-        const dictionaryPromise = fetch('https://raw.githubusercontent.com/redbo/scrabble/master/dictionary.txt')
-            .then(res => {
-                if (!res.ok) throw new Error(`Dictionary download failed: ${res.statusText}`);
-                return res.text();
-            })
-            .then(text => {
-                const words = text.split('\n').map(w => w.trim().toUpperCase()).filter(w => w.length >= 3);
-                wordSet = new Set(words);
-                wordSet.add("ZEN");
-                wordSet.add("KIN");
-                dictionaryTrie = new Trie();
-                for (const word of wordSet) dictionaryTrie.insert(word);
-                console.log("Dictionary loaded.");
-            });
+        // Load Dictionary (Critical Path)
+        try {
+            const res = await fetch('https://raw.githubusercontent.com/redbo/scrabble/master/dictionary.txt');
+            if (!res.ok) throw new Error(`Dictionary download failed: ${res.statusText}`);
+            const words = (await res.text()).split('\n').map(w => w.trim().toUpperCase()).filter(w => w.length >= 3);
+            wordSet = new Set(words);
+            wordSet.add("ZEN");
+            wordSet.add("KIN");
+            dictionaryTrie = new Trie();
+            for (const word of wordSet) dictionaryTrie.insert(word);
+            console.log("Dictionary loaded. Game is playable.");
+            
+            createGrid();
+            if (modalButton) {
+                modalButton.disabled = false;
+                modalButton.innerHTML = `<span>Let's Go!</span>`;
+                modalButton.onclick = () => {
+                    // Increment play count if firebase is available
+                    if (db) {
+                        const statsRef = doc(db, "gameStats", "stats");
+                        updateDoc(statsRef, { playCount: increment(1) }).catch(console.warn);
+                    }
+                    gameContentEl.classList.remove('blurred');
+                    messageModal.classList.add('hidden');
+                    startGame();
+                };
+            }
+        } catch (e) {
+            console.error("Critical Asset loading failed (Dictionary):", e);
+            if (loadingErrorEl) loadingErrorEl.textContent = "Error: Could not load game dictionary.";
+            if (modalButton) {
+                modalButton.innerHTML = `<span>Error Loading</span>`;
+                modalButton.classList.add('bg-red-500', 'cursor-not-allowed');
+                modalButton.classList.remove('bg-green-500');
+            }
+            return; // Stop if dictionary fails
+        }
 
-        const firebasePromise = (async () => {
+        // Load Firebase Features (Non-Critical Path)
+        try {
             const firebaseConfig = {
                 apiKey: "AIzaSyBa2DPRjwaI-G5mz-OmHVXEDJ4_MzBAZgA",
                 authDomain: "word-rush-game-9010a.firebaseapp.com",
@@ -208,51 +232,24 @@
             auth = getAuth(app);
             db = getFirestore(app);
             await signInAnonymously(auth);
-            console.log("Signed in anonymously");
-        })();
+            console.log("Firebase connected.");
 
-        try {
-            // Wait for the dictionary to be ready - this is critical for gameplay
-            await dictionaryPromise;
+            // Fetch Play Count
+            const statsRef = doc(db, "gameStats", "stats");
+            const docSnap = await getDoc(statsRef);
+            if (docSnap.exists()) {
+                if (globalPlayCountSpan) globalPlayCountSpan.textContent = docSnap.data().playCount.toLocaleString();
+            }
             
-            // Now that dictionary is loaded, the game is playable.
-            createGrid();
-            if (modalButton) {
-                modalButton.disabled = false;
-                modalButton.innerHTML = `<span>Let's Go!</span>`;
-                modalButton.onclick = () => {
-                    if (db) {
-                        const statsRef = doc(db, "gameStats", "stats");
-                        updateDoc(statsRef, { playCount: increment(1) });
-                    }
-                    gameContentEl.classList.remove('blurred');
-                    messageModal.classList.add('hidden');
-                    startGame();
-                };
-            }
+            // Enable Leaderboard button
+            if(showLeaderboardButton) showLeaderboardButton.disabled = false;
 
-            // In the background, wait for Firebase and then fetch the play count
-            await firebasePromise;
-            let playCount = 0;
-            try {
-                const statsRef = doc(db, "gameStats", "stats");
-                const docSnap = await getDoc(statsRef);
-                if (docSnap.exists()) {
-                    playCount = docSnap.data().playCount;
-                }
-            } catch(e) {
-                console.warn("Could not fetch play count", e);
-            }
-            if(globalPlayCountSpan) globalPlayCountSpan.textContent = playCount.toLocaleString();
-
-        } catch (e) {
-             // --- Loading Failed: Update UI ---
-            console.error("Asset loading failed:", e);
-            if (loadingErrorEl) loadingErrorEl.textContent = e.message;
-            if (modalButton) {
-                modalButton.innerHTML = `<span>Error Loading</span>`;
-                modalButton.classList.add('bg-red-500', 'cursor-not-allowed');
-                modalButton.classList.remove('bg-green-500');
+        } catch (firebaseError) {
+            console.warn("Firebase features failed to load, continuing in offline mode:", firebaseError);
+            if (globalPlayCountSpan) globalPlayCountSpan.textContent = "N/A";
+            if (showLeaderboardButton) {
+                showLeaderboardButton.disabled = true;
+                showLeaderboardButton.classList.add('opacity-50', 'cursor-not-allowed');
             }
         }
     }
@@ -581,7 +578,7 @@
                     <div class="font-bold text-slate-600 text-base flex items-center">
                         <span class="text-xl mr-1">🏆</span>Your High: <span id="welcome-high-score" class="ml-1">0</span>
                     </div>
-                    <button id="show-leaderboard-button" class="font-bold text-green-500 hover:text-green-600 text-base flex items-center">
+                    <button id="show-leaderboard-button" class="font-bold text-green-500 hover:text-green-600 text-base flex items-center" disabled>
                         Leaderboard <span class="text-xl ml-1">🌍</span>
                     </button>
                 </div>
@@ -634,6 +631,17 @@
         leaderboardModal.classList.remove('hidden');
 
         const leaderboardList = document.getElementById('leaderboard-list-simple');
+        const loadingEl = document.getElementById('leaderboard-loading-secondary');
+        
+        if (!db) {
+            loadingEl.innerHTML = `<p class="text-red-500 text-center p-4">Leaderboard offline.</p>`;
+            document.getElementById('close-leaderboard-button').onclick = () => {
+                leaderboardModal.classList.add('hidden');
+                modalContent.classList.remove('blurred');
+            };
+            return;
+        }
+
         let leaderboardHTML = `<p class="text-slate-500 text-center p-4">No scores yet.</p>`;
         
         try {
@@ -656,7 +664,7 @@
             leaderboardHTML = `<p class="text-red-500 text-center p-4">Could not load leaderboard.</p>`;
         }
 
-        document.getElementById('leaderboard-loading-secondary').classList.add('hidden');
+        loadingEl.classList.add('hidden');
         leaderboardList.innerHTML = leaderboardHTML;
         
         // Logic for scroll indicator
@@ -726,6 +734,11 @@
         const fetchAndDisplayLeaderboard = async () => {
             const leaderboardListDiv = document.getElementById('leaderboard-list-endgame');
             if (!leaderboardListDiv) return;
+
+            if (!db) { // New check
+                leaderboardListDiv.innerHTML = '<p class="text-slate-500 p-2 text-center">Offline</p>';
+                return;
+            }
 
             let leaderboardHTML = '<ul><li class="text-slate-500 text-center p-2">No scores yet.</li></ul>';
             try {
