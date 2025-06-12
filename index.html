@@ -161,47 +161,102 @@
     }
 
     // --- Init ---
-    async function main() {
-        try {
-            const firebaseConfig = {
-                apiKey: "AIzaSyBa2DPRjwaI-G5mz-OmHVXEDJ4_MzBAZgA",
-                authDomain: "word-rush-game-9010a.firebaseapp.com",
-                projectId: "word-rush-game-9010a",
-                storageBucket: "word-rush-game-9010a.firebasestorage.app",
-                messagingSenderId: "551838491871",
-                appId: "1:551838491871:web:757325be04daab9289b56a",
-                measurementId: "G-D0TSQFY1XS"
-            };
-            const app = initializeApp(firebaseConfig);
-            auth = getAuth(app);
-            db = getFirestore(app);
-            await signInAnonymously(auth);
-            console.log("Signed in anonymously");
-        } catch (e) {
-            showWelcomeScreen("Error: Could not connect to servers.");
-            console.error("Firebase initialization failed:", e);
-            return; 
-        }
-
-        try {
-            const res = await fetch('https://raw.githubusercontent.com/redbo/scrabble/master/dictionary.txt');
-            const words = (await res.text()).split('\n').map(w => w.trim().toUpperCase()).filter(w => w.length >= 3);
-            wordSet = new Set(words);
-            wordSet.add("ZEN");
-            wordSet.add("KIN");
-            dictionaryTrie = new Trie();
-            for(const word of wordSet) dictionaryTrie.insert(word);
-        } catch (e) { 
-            showWelcomeScreen("Error: Could not load dictionary."); 
-        }
-        
-        createGrid();
+    function main() {
+        // Setup UI elements that don't depend on data
         setupEventListeners();
         displayHighScore();
+        
+        // Show the welcome screen immediately in a loading state
         showWelcomeScreen();
+        
+        // Load all necessary assets in the background
+        loadAssets();
+    }
+    
+    async function loadAssets() {
+        const modalButton = document.getElementById('modal-button');
+        const loadingErrorEl = document.getElementById('loading-error');
+        const globalPlayCountSpan = document.getElementById('global-play-count');
+
+        try {
+            // Initialize Firebase
+            try {
+                const firebaseConfig = {
+                    apiKey: "AIzaSyBa2DPRjwaI-G5mz-OmHVXEDJ4_MzBAZgA",
+                    authDomain: "word-rush-game-9010a.firebaseapp.com",
+                    projectId: "word-rush-game-9010a",
+                    storageBucket: "word-rush-game-9010a.firebasestorage.app",
+                    messagingSenderId: "551838491871",
+                    appId: "1:551838491871:web:757325be04daab9289b56a",
+                    measurementId: "G-D0TSQFY1XS"
+                };
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                await signInAnonymously(auth);
+                console.log("Signed in anonymously");
+            } catch (e) {
+                console.error("Firebase initialization failed:", e);
+                throw new Error("Error: Could not connect to servers.");
+            }
+
+            // Load Dictionary
+            try {
+                const res = await fetch('https://raw.githubusercontent.com/redbo/scrabble/master/dictionary.txt');
+                const words = (await res.text()).split('\n').map(w => w.trim().toUpperCase()).filter(w => w.length >= 3);
+                wordSet = new Set(words);
+                wordSet.add("ZEN");
+                wordSet.add("KIN");
+                dictionaryTrie = new Trie();
+                for(const word of wordSet) dictionaryTrie.insert(word);
+            } catch (e) { 
+                console.error("Dictionary load failed:", e);
+                throw new Error("Error: Could not load dictionary.");
+            }
+            
+            // Now that dictionary is loaded, create the first grid
+            createGrid();
+
+            // Fetch Play Count
+            let playCount = 0;
+            try {
+                const statsRef = doc(db, "gameStats", "stats");
+                const docSnap = await getDoc(statsRef);
+                if (docSnap.exists()) {
+                    playCount = docSnap.data().playCount;
+                }
+            } catch(e) {
+                console.warn("Could not fetch play count", e);
+                // Non-critical, so we don't throw an error
+            }
+            if(globalPlayCountSpan) globalPlayCountSpan.textContent = playCount.toLocaleString();
+
+            // --- Loading Complete: Update UI ---
+            if (modalButton) {
+                modalButton.disabled = false;
+                modalButton.innerHTML = `<span>Let's Go!</span>`;
+                modalButton.onclick = () => { // Removed async
+                    const statsRef = doc(db, "gameStats", "stats");
+                    updateDoc(statsRef, { playCount: increment(1) }); // Removed await - Fire and forget
+                    gameContentEl.classList.remove('blurred');
+                    messageModal.classList.add('hidden');
+                    startGame();
+                };
+            }
+
+        } catch (e) {
+             // --- Loading Failed: Update UI ---
+            if (loadingErrorEl) loadingErrorEl.textContent = e.message;
+            if (modalButton) {
+                modalButton.innerHTML = `<span>Error Loading</span>`;
+                modalButton.classList.add('bg-red-500', 'cursor-not-allowed');
+                modalButton.classList.remove('bg-green-500');
+            }
+        }
     }
     
     function createGrid() {
+        // This function now safely assumes dictionaryTrie is available if called from loadAssets
         const board = generateAndValidateBoard();
         grid.innerHTML = '';
         for (let i = 0; i < GRID_SIZE; i++) {
@@ -238,6 +293,7 @@
 
     // --- Gameplay ---
     function startGame() {
+        clearInterval(timerInterval); // Safety clear to prevent multiple timers
         let personalPlayCount = parseInt(localStorage.getItem('wordRushPersonalPlayCount')) || 0;
         localStorage.setItem('wordRushPersonalPlayCount', personalPlayCount + 1);
         displayHighScore();
@@ -260,9 +316,8 @@
         endGameModal.classList.add('hidden');
         score = 0; foundWords = [];
         updateScoreDisplay(); 
-        createGrid(); 
-        clearSelection();
         showWelcomeScreen();
+        loadAssets();
     }
     
     // --- Input & Word Logic ---
@@ -441,18 +496,7 @@
         currentWordLettersEl.innerHTML = selectedTiles.map(t => `<span class="current-letter bg-white text-blue-500 font-bold text-xl p-1.5 rounded-md shadow-sm">${t.dataset.letter}</span>`).join('');
     }
 
-    async function showWelcomeScreen(error = null) {
-        let playCount = 0;
-        try {
-            const statsRef = doc(db, "gameStats", "stats");
-            const docSnap = await getDoc(statsRef);
-            if (docSnap.exists()) {
-                playCount = docSnap.data().playCount;
-            }
-        } catch(e) {
-            console.error("Could not fetch play count", e);
-        }
-
+    function showWelcomeScreen() {
         modalContent.innerHTML = `
             <div class="bg-white rounded-2xl shadow-2xl p-6 text-center modal-enter">
                 <h1 class="text-4xl font-black text-slate-800 tracking-tighter mb-1 flex items-center justify-center">
@@ -522,7 +566,15 @@
                         </div>
                     </div>
                 </div>
-                <button id="modal-button" class="bg-green-500 hover:bg-green-600 w-full text-white font-bold py-3 px-6 rounded-lg text-lg shadow-lg transition-transform hover:scale-105 mb-3">Let's Go!</button>
+                <button id="modal-button" class="bg-green-500 hover:bg-green-600 w-full text-white font-bold py-3 px-6 rounded-lg text-lg shadow-lg transition-transform hover:scale-105 disabled:bg-slate-400 disabled:cursor-wait" disabled>
+                    <div class="flex items-center justify-center">
+                        <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span>Loading Game...</span>
+                    </div>
+                </button>
                 <div class="flex justify-between items-center border-t border-slate-200 pt-3">
                     <div class="font-bold text-slate-600 text-base flex items-center">
                         <span class="text-xl mr-1">🏆</span>Your High: <span id="welcome-high-score" class="ml-1">0</span>
@@ -532,8 +584,8 @@
                     </button>
                 </div>
                 <p class="text-xs text-slate-400 mt-2">You've played <span id="personal-play-count">0</span> games!</p>
-                <p class="text-xs text-slate-400">${playCount.toLocaleString()} games played globally</p>
-                ${error ? `<p class="text-red-500 mt-4">${error}</p>` : ''}
+                <p class="text-xs text-slate-400"><span id="global-play-count">...</span> games played globally</p>
+                <p id="loading-error" class="text-red-500 mt-2 font-semibold"></p>
             </div>
         `;
         gameContentEl.classList.add('blurred');
@@ -560,13 +612,7 @@
         
         document.getElementById('welcome-high-score').textContent = getLocalHighScore();
         document.getElementById('personal-play-count').textContent = localStorage.getItem('wordRushPersonalPlayCount') || 0;
-        document.getElementById('modal-button').onclick = async () => {
-            const statsRef = doc(db, "gameStats", "stats");
-            await updateDoc(statsRef, { playCount: increment(1) });
-            gameContentEl.classList.remove('blurred');
-            messageModal.classList.add('hidden');
-            startGame();
-        };
+        
         document.getElementById('show-leaderboard-button').onclick = showLeaderboardModal;
     }
 
@@ -871,15 +917,20 @@
                 }
             }
             
-            if (isBoardPlayable(board)) {
+            if (dictionaryTrie && isBoardPlayable(board)) {
                 console.log(`Board generated successfully after ${attemptCount} attempts`);
                 return board;
             }
             
+            if(!dictionaryTrie && attempts > 0) {
+                 // If dictionary isn't ready, just create a random board and don't validate.
+                return board;
+            }
+
             board = null; 
         }
         
-        console.warn(`Failed to generate a high-quality board after ${attemptCount} attempts, using last random attempt.`);
+        console.warn(`Failed to generate a high-quality board after 200 attempts, using last random attempt.`);
         return board || Array.from({ length: GRID_SIZE }, () => getRandomLetter());
     }
 
@@ -947,7 +998,7 @@
     function findWordsRecursive(currentIndex, currentWord, path, found, boardLetters) {
         currentWord += boardLetters[currentIndex];
 
-        if (!dictionaryTrie.search(currentWord, true)) {
+        if (!dictionaryTrie || !dictionaryTrie.search(currentWord, true)) {
             return;
         }
 
