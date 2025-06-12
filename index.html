@@ -86,7 +86,7 @@
                 <div id="timer" class="text-3xl font-bold text-green-500 transition-all duration-300">60</div>
             </div>
         </div>
-        <div id="current-word-container" class="mb-3 p-2 bg-slate-200 rounded-lg shadow-inner min-h-[52px] flex items-center justify-center">
+        <div id="current-word-container" class="mb-3 p-2 bg-slate-200 rounded-lg shadow-inner h-[52px] flex items-center justify-center">
             <div id="current-word-letters" class="flex-grow flex items-center justify-center space-x-1"></div>
         </div>
         <div id="grid-container" class="relative">
@@ -178,46 +178,61 @@
         const loadingErrorEl = document.getElementById('loading-error');
         const globalPlayCountSpan = document.getElementById('global-play-count');
 
-        try {
-            // Initialize Firebase
-            try {
-                const firebaseConfig = {
-                    apiKey: "AIzaSyBa2DPRjwaI-G5mz-OmHVXEDJ4_MzBAZgA",
-                    authDomain: "word-rush-game-9010a.firebaseapp.com",
-                    projectId: "word-rush-game-9010a",
-                    storageBucket: "word-rush-game-9010a.firebasestorage.app",
-                    messagingSenderId: "551838491871",
-                    appId: "1:551838491871:web:757325be04daab9289b56a",
-                    measurementId: "G-D0TSQFY1XS"
-                };
-                const app = initializeApp(firebaseConfig);
-                auth = getAuth(app);
-                db = getFirestore(app);
-                await signInAnonymously(auth);
-                console.log("Signed in anonymously");
-            } catch (e) {
-                console.error("Firebase initialization failed:", e);
-                throw new Error("Error: Could not connect to servers.");
-            }
-
-            // Load Dictionary
-            try {
-                const res = await fetch('https://raw.githubusercontent.com/redbo/scrabble/master/dictionary.txt');
-                const words = (await res.text()).split('\n').map(w => w.trim().toUpperCase()).filter(w => w.length >= 3);
+        // Parallelize fetching dictionary and connecting to Firebase
+        const dictionaryPromise = fetch('https://raw.githubusercontent.com/redbo/scrabble/master/dictionary.txt')
+            .then(res => {
+                if (!res.ok) throw new Error(`Dictionary download failed: ${res.statusText}`);
+                return res.text();
+            })
+            .then(text => {
+                const words = text.split('\n').map(w => w.trim().toUpperCase()).filter(w => w.length >= 3);
                 wordSet = new Set(words);
                 wordSet.add("ZEN");
                 wordSet.add("KIN");
                 dictionaryTrie = new Trie();
-                for(const word of wordSet) dictionaryTrie.insert(word);
-            } catch (e) { 
-                console.error("Dictionary load failed:", e);
-                throw new Error("Error: Could not load dictionary.");
-            }
-            
-            // Now that dictionary is loaded, create the first grid
-            createGrid();
+                for (const word of wordSet) dictionaryTrie.insert(word);
+                console.log("Dictionary loaded.");
+            });
 
-            // Fetch Play Count
+        const firebasePromise = (async () => {
+            const firebaseConfig = {
+                apiKey: "AIzaSyBa2DPRjwaI-G5mz-OmHVXEDJ4_MzBAZgA",
+                authDomain: "word-rush-game-9010a.firebaseapp.com",
+                projectId: "word-rush-game-9010a",
+                storageBucket: "word-rush-game-9010a.firebasestorage.app",
+                messagingSenderId: "551838491871",
+                appId: "1:551838491871:web:757325be04daab9289b56a",
+                measurementId: "G-D0TSQFY1XS"
+            };
+            const app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+            await signInAnonymously(auth);
+            console.log("Signed in anonymously");
+        })();
+
+        try {
+            // Wait for the dictionary to be ready - this is critical for gameplay
+            await dictionaryPromise;
+            
+            // Now that dictionary is loaded, the game is playable.
+            createGrid();
+            if (modalButton) {
+                modalButton.disabled = false;
+                modalButton.innerHTML = `<span>Let's Go!</span>`;
+                modalButton.onclick = () => {
+                    if (db) {
+                        const statsRef = doc(db, "gameStats", "stats");
+                        updateDoc(statsRef, { playCount: increment(1) });
+                    }
+                    gameContentEl.classList.remove('blurred');
+                    messageModal.classList.add('hidden');
+                    startGame();
+                };
+            }
+
+            // In the background, wait for Firebase and then fetch the play count
+            await firebasePromise;
             let playCount = 0;
             try {
                 const statsRef = doc(db, "gameStats", "stats");
@@ -227,25 +242,12 @@
                 }
             } catch(e) {
                 console.warn("Could not fetch play count", e);
-                // Non-critical, so we don't throw an error
             }
             if(globalPlayCountSpan) globalPlayCountSpan.textContent = playCount.toLocaleString();
 
-            // --- Loading Complete: Update UI ---
-            if (modalButton) {
-                modalButton.disabled = false;
-                modalButton.innerHTML = `<span>Let's Go!</span>`;
-                modalButton.onclick = () => { // Removed async
-                    const statsRef = doc(db, "gameStats", "stats");
-                    updateDoc(statsRef, { playCount: increment(1) }); // Removed await - Fire and forget
-                    gameContentEl.classList.remove('blurred');
-                    messageModal.classList.add('hidden');
-                    startGame();
-                };
-            }
-
         } catch (e) {
              // --- Loading Failed: Update UI ---
+            console.error("Asset loading failed:", e);
             if (loadingErrorEl) loadingErrorEl.textContent = e.message;
             if (modalButton) {
                 modalButton.innerHTML = `<span>Error Loading</span>`;
@@ -493,7 +495,7 @@
     }
 
     function updateCurrentWord() {
-        currentWordLettersEl.innerHTML = selectedTiles.map(t => `<span class="current-letter bg-white text-blue-500 font-bold text-xl p-1.5 rounded-md shadow-sm">${t.dataset.letter}</span>`).join('');
+        currentWordLettersEl.innerHTML = selectedTiles.map(t => `<span class="current-letter bg-white text-blue-500 font-bold text-xl p-1 rounded-md shadow-sm">${t.dataset.letter}</span>`).join('');
     }
 
     function showWelcomeScreen() {
@@ -682,44 +684,16 @@
         };
     }
 
-    async function showEndGameScreen() {
-        endGameModalContent.innerHTML = `<div class="bg-white rounded-2xl shadow-2xl p-6 text-center w-full max-w-sm mx-auto modal-enter">
-            <h2 class="text-3xl font-black text-green-500">Time's Up!</h2>
-            <p class="text-slate-600 mb-2">Your final score is:</p>
-            <p class="text-6xl font-black text-slate-800 mb-4">${score}</p>
-            <div id="leaderboard-loading" class="text-slate-500 p-2">Fetching Scores...</div>
-            <div id="leaderboard-content" class="hidden"></div>
-            <button id="play-again-button" class="bg-green-500 hover:bg-green-600 w-full text-white font-bold py-3 px-8 rounded-lg text-lg shadow-lg transition-transform hover:scale-105 mt-6">Play Again</button>
-        </div>`;
+    function showEndGameScreen() {
         gameContentEl.classList.add('blurred');
         endGameModal.classList.remove('hidden');
         
-        let leaderboardHTML = '<li class="text-slate-500 text-center p-2">No scores yet.</li>';
-        try {
-            const q = query(collection(db, "scores"), orderBy("score", "desc"), limit(10));
-            const querySnapshot = await getDocs(q);
-            const highScores = [];
-            querySnapshot.forEach((doc) => {
-                highScores.push(doc.data());
-            });
-
-            if (highScores.length > 0) {
-                 leaderboardHTML = highScores.map((s, i) => `
-                    <li class="flex justify-between items-center py-1">
-                        <span class="font-bold text-slate-700">${i + 1}. ${s.name}</span>
-                        <span class="font-bold text-green-500">${s.score}</span>
-                    </li>`).join('');
-            }
-        } catch (e) {
-            console.error("Could not fetch leaderboard", e);
-            leaderboardHTML = '<li class="text-red-500 text-center p-2">Could not load leaderboard.</li>';
-        }
-        
-        const foundWordsHTML = foundWords.length ? foundWords.map(fw => `
+        const sortedWords = [...foundWords].sort((a, b) => b.score - a.score);
+        const foundWordsHTML = sortedWords.length ? sortedWords.map(fw => `
             <div class="flex justify-between text-sm"><span class="font-semibold">${fw.word.toUpperCase()}</span><span>+${fw.score}</span></div>
-        `).join('') : '<p class="text-sm text-slate-500">No words found.</p>';
+        `).join('') : '<p class="text-sm text-slate-500 text-center">No words found.</p>';
 
-        const finalModalHTML = `
+        const initialModalHTML = `
             <div class="bg-white rounded-2xl shadow-2xl p-6 text-center w-full max-w-sm mx-auto modal-enter">
                 <h2 class="text-3xl font-black text-green-500">Great Game!</h2>
                 <p class="text-slate-600 mb-2">Your final score is:</p>
@@ -735,7 +709,9 @@
                 <div class="grid grid-cols-2 gap-4 mb-6 text-left">
                     <div>
                         <h3 class="text-xl font-bold text-slate-700 mb-2 border-b pb-2">Leaderboard</h3>
-                        <div id="leaderboard-list" class="space-y-0.5 max-h-40 overflow-y-auto pr-2">${leaderboardHTML}</div>
+                        <div id="leaderboard-list-endgame" class="space-y-0.5 max-h-40 overflow-y-auto pr-2">
+                            <div class="text-slate-500 p-2 text-center">Fetching Scores...</div>
+                        </div>
                     </div>
                     <div>
                          <h3 class="text-xl font-bold text-slate-700 mb-2 border-b pb-2">Your Words</h3>
@@ -744,9 +720,40 @@
                 </div>
                 <button id="play-again-button" class="bg-green-500 hover:bg-green-600 w-full text-white font-bold py-3 px-8 rounded-lg text-lg shadow-lg transition-transform hover:scale-105">Play Again</button>
             </div>`;
-        endGameModalContent.innerHTML = `<div class="bg-white rounded-2xl shadow-2xl p-6 text-center w-full max-w-sm mx-auto modal-enter">${finalModalHTML}</div>`;
-
         
+        endGameModalContent.innerHTML = initialModalHTML;
+
+        const fetchAndDisplayLeaderboard = async () => {
+            const leaderboardListDiv = document.getElementById('leaderboard-list-endgame');
+            if (!leaderboardListDiv) return;
+
+            let leaderboardHTML = '<ul><li class="text-slate-500 text-center p-2">No scores yet.</li></ul>';
+            try {
+                const q = query(collection(db, "scores"), orderBy("score", "desc"), limit(10));
+                const querySnapshot = await getDocs(q);
+                const highScores = [];
+                querySnapshot.forEach((doc) => {
+                    highScores.push(doc.data());
+                });
+
+                if (highScores.length > 0) {
+                     leaderboardHTML = highScores.map((s, i) => `
+                        <li class="flex justify-between items-center py-1">
+                            <span class="font-bold text-slate-700 w-8">${i + 1}.</span>
+                            <span class="flex-grow text-left truncate mr-2">${s.name}</span>
+                            <span class="font-bold text-green-500">${s.score}</span>
+                        </li>`).join('');
+                     leaderboardHTML = `<ul class="space-y-0.5">${leaderboardHTML}</ul>`
+                }
+            } catch (e) {
+                console.error("Could not fetch leaderboard", e);
+                leaderboardHTML = '<p class="text-red-500 text-center p-2">Could not load leaderboard.</p>';
+            }
+            leaderboardListDiv.innerHTML = leaderboardHTML;
+        };
+
+        fetchAndDisplayLeaderboard();
+            
         document.getElementById('play-again-button').onclick = resetGame;
         const nameInput = document.getElementById('player-name');
         nameInput.value = localStorage.getItem('wordRushPlayerName') || '';
@@ -761,19 +768,7 @@
                 if (form) {
                     form.innerHTML = `<div class="flex items-center justify-center text-green-600 font-bold mb-4 pop-in"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg><span>Score Submitted!</span></div>`;
                 }
-                 // Refresh the leaderboard display
-                const q = query(collection(db, "scores"), orderBy("score", "desc"), limit(10));
-                const querySnapshot = await getDocs(q);
-                const highScores = [];
-                querySnapshot.forEach((doc) => highScores.push(doc.data()));
-                if(highScores.length > 0) {
-                    document.getElementById('leaderboard-list').innerHTML = highScores.map((s, i) => `
-                        <li class="flex justify-between items-center py-1">
-                            <span class="font-bold text-slate-700">${i + 1}. ${s.name}</span>
-                            <span class="font-bold text-green-500">${s.score}</span>
-                        </li>`).join('');
-                }
-
+                fetchAndDisplayLeaderboard(); // Refresh leaderboard after submitting
             } else {
                 button.disabled = false;
                 button.textContent = 'Submit';
