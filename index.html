@@ -462,15 +462,15 @@
                 <p class="text-slate-500 text-sm mb-4">The fast-paced word finding game!</p>
                 <div class="text-left space-y-2 bg-slate-100 p-3 rounded-lg mb-4">
                     <h3 class="text-md font-bold text-slate-700 text-center mb-2">How to Play</h3>
-                    <div id="how-to-play-content" class="relative max-h-48 overflow-y-auto pr-2">
-                        <ul class="space-y-2 text-sm">
+                    <div id="how-to-play-content" class="relative max-h-52 overflow-y-auto pr-2">
+                        <ul class="space-y-3 text-sm">
                             <li class="flex items-start">
                                 <span class="text-lg mr-2">🏆</span>
                                 <span class="flex-1 text-left"><strong>Your Goal:</strong> Score as many points as you can in 60 seconds!</span>
                             </li>
                             <li class="flex items-start">
                                 <span class="text-lg mr-2">👉</span>
-                                <span class="flex-1 text-left"><strong>How to Score:</strong> Swipe adjacent letters to make words (3+ letters).</span>
+                                <span class="flex-1 text-left"><strong>How to Score:</strong> Swipe adjacent letters to make words (3+ letters). Your score is the sum of letter points, multiplied by any word bonuses (like DW).</span>
                             </li>
                             <li class="flex items-start">
                                 <span class="text-lg mr-2">⭐</span>
@@ -506,6 +506,12 @@
                                                     <tr><td class="py-0.5 px-2 border-r border-slate-200 bg-slate-50">7+ Letters</td><td class="py-0.5 px-2 bg-slate-50">+20 pts</td></tr>
                                                 </tbody>
                                             </table>
+                                        </div>
+                                        <div>
+                                            <strong class="font-semibold text-slate-700">Letter Values:</strong>
+                                            <div class="flex flex-wrap gap-1 mt-1">
+                                                <span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">A-1</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">B-3</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">C-3</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">D-2</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">E-1</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">F-4</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">G-2</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">H-4</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">I-1</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">J-8</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">K-5</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">L-1</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">M-3</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">N-1</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">O-1</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">P-3</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">Q-10</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">R-1</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">S-1</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">T-1</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">U-1</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">V-4</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">W-4</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">X-8</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">Y-4</span><span class="bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded text-xs">Z-10</span>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -568,13 +574,20 @@
         leaderboardModalContent.innerHTML = `<div class="bg-white rounded-2xl shadow-2xl p-6 text-center w-full max-w-xs mx-auto modal-enter">
             <h2 class="text-2xl font-bold text-slate-800 mb-4 flex items-center justify-center">Leaderboard <span class="text-2xl ml-2">🌍</span></h2>
             <div id="leaderboard-loading-secondary" class="text-slate-500 p-2">Fetching Scores...</div>
-            <ol id="leaderboard-list-secondary" class="space-y-1 max-h-64 overflow-y-auto"></ol>
+            <div id="leaderboard-scroll-container" class="relative max-h-64 overflow-y-auto">
+                <ol id="leaderboard-list-simple" class="space-y-1 text-left"></ol>
+                <div id="leaderboard-scroll-indicator" class="scroll-indicator sticky bottom-0 left-0 right-0 h-8 flex justify-center items-end pointer-events-none bg-gradient-to-t from-white to-transparent pt-4">
+                    <svg class="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                </div>
+            </div>
             <button id="close-leaderboard-button" class="mt-4 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-2 px-4 rounded-lg">Close</button>
         </div>`;
         modalContent.classList.add('blurred');
         leaderboardModal.classList.remove('hidden');
 
-        let leaderboardHTML = '<li class="text-slate-500 text-center p-2">No scores yet.</li>';
+        const leaderboardList = document.getElementById('leaderboard-list-simple');
+        let leaderboardHTML = `<p class="text-slate-500 text-center p-4">No scores yet.</p>`;
+        
         try {
             const q = query(collection(db, "scores"), orderBy("score", "desc"), limit(10));
             const querySnapshot = await getDocs(q);
@@ -582,19 +595,41 @@
             querySnapshot.forEach((doc) => highScores.push(doc.data()));
 
             if (highScores.length > 0) {
-                 leaderboardHTML = highScores.map((s, i) => `
-                    <li class="flex justify-between items-center py-1 px-2">
-                        <span class="font-bold text-slate-700">${i + 1}. ${s.name}</span>
+                leaderboardHTML = highScores.map((s, i) => `
+                    <li class="flex items-center p-2 rounded-lg ${i % 2 === 0 ? 'bg-slate-50' : ''}">
+                        <span class="font-bold text-slate-500 w-8 text-center">${i + 1}.</span>
+                        <span class="font-semibold text-slate-800 flex-grow truncate mr-4">${s.name}</span>
                         <span class="font-bold text-green-500">${s.score}</span>
-                    </li>`).join('');
+                    </li>
+                `).join('');
             }
         } catch (e) {
             console.error("Could not fetch leaderboard", e);
-            leaderboardHTML = '<li class="text-red-500 text-center p-2">Could not load leaderboard.</li>';
+            leaderboardHTML = `<p class="text-red-500 text-center p-4">Could not load leaderboard.</p>`;
         }
 
         document.getElementById('leaderboard-loading-secondary').classList.add('hidden');
-        document.getElementById('leaderboard-list-secondary').innerHTML = leaderboardHTML;
+        leaderboardList.innerHTML = leaderboardHTML;
+        
+        // Logic for scroll indicator
+        const leaderboardScrollContainer = document.getElementById('leaderboard-scroll-container');
+        const leaderboardScrollIndicator = document.getElementById('leaderboard-scroll-indicator');
+
+        if (leaderboardScrollContainer && leaderboardScrollIndicator) {
+            const checkScroll = () => {
+                const isScrollable = leaderboardScrollContainer.scrollHeight > leaderboardScrollContainer.clientHeight;
+                const isAtBottom = leaderboardScrollContainer.scrollHeight - leaderboardScrollContainer.scrollTop <= leaderboardScrollContainer.clientHeight + 2;
+                
+                if (!isScrollable || isAtBottom) {
+                    leaderboardScrollIndicator.style.opacity = '0';
+                } else {
+                    leaderboardScrollIndicator.style.opacity = '1';
+                }
+            };
+            leaderboardScrollContainer.addEventListener('scroll', checkScroll);
+            setTimeout(checkScroll, 100); // Check after content has rendered
+        }
+        
         document.getElementById('close-leaderboard-button').onclick = () => {
             leaderboardModal.classList.add('hidden');
             modalContent.classList.remove('blurred');
