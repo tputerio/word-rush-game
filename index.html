@@ -56,14 +56,6 @@
         }
         .current-letter { animation: pop-in 0.2s ease-out; }
         .modal-enter { animation: pop-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
-        
-        @keyframes bounce-y {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-25%); }
-        }
-        .animate-bounce-y {
-            animation: bounce-y 1.5s infinite;
-        }
 
     </style>
 </head>
@@ -465,31 +457,22 @@
                     <span>Word Worm</span>
                 </h1>
                 <p class="text-slate-500 text-sm mb-4">The fast-paced word finding game!</p>
-                <div id="how-to-play-container" class="relative text-left space-y-3 bg-slate-100 p-4 rounded-lg mb-4 max-h-56 overflow-y-auto">
-                    <h3 class="text-lg font-bold text-slate-700 text-center mb-2">How to Play</h3>
-                    <ul class="space-y-3 text-base">
-                        <li class="flex items-start">
-                             <span class="text-xl mr-3">🏆</span>
-                            <span class="flex-1 text-left"><strong>Your Goal:</strong> Score as many points as you can in 60 seconds!</span>
+                <div class="text-left space-y-2 bg-slate-100 p-4 rounded-lg mb-4">
+                    <h3 class="text-md font-bold text-slate-700 text-center mb-2">How to Play</h3>
+                    <ul class="space-y-2 text-base">
+                         <li class="flex items-start">
+                             <span class="text-xl mr-2">🏆</span>
+                            <span><strong>Your Goal:</strong> Score as many points as you can in 60 seconds!</span>
                         </li>
                          <li class="flex items-start">
-                            <span class="text-xl mr-3">👉</span>
-                            <span class="flex-1 text-left"><strong>How to Score:</strong> Swipe adjacent letters to make words (3+ letters).</span>
+                            <span class="text-xl mr-2">👉</span>
+                            <span><strong>How to Score:</strong> Swipe adjacent letters to make words (3+ letters).</span>
                         </li>
                          <li class="flex items-start">
-                            <span class="text-xl mr-3">⭐</span>
-                            <div class="flex-1 text-left">
-                                <strong>Pro-Tip:</strong> Use bonuses and long words to maximize your score!
-                                <ul class="text-sm text-slate-600 mt-2 space-y-1 pl-1">
-                                    <li><strong>Bonus Tiles:</strong> DL (Double Letter), TL (Triple Letter), DW (Double Word), +5s (Extra Time).</li>
-                                    <li><strong>Long Word Bonus:</strong> 4 Letters: +2, 5: +5, 6: +10, 7+: +20</li>
-                                </ul>
-                            </div>
+                            <span class="text-xl mr-2">⭐</span>
+                            <span><strong>Pro-Tip:</strong> Use Bonus Tiles and find long words for massive point bonuses!</span>
                         </li>
                     </ul>
-                    <div id="scroll-indicator" class="absolute bottom-1 left-1/2 -translate-x-1/2 text-slate-400">
-                        <svg class="w-6 h-6 animate-bounce-y" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
-                    </div>
                 </div>
                  <button id="modal-button" class="bg-green-500 hover:bg-green-600 w-full text-white font-bold py-3 px-6 rounded-lg text-lg shadow-lg transition-transform hover:scale-105 mb-3">Let's Go!</button>
                  <div class="flex justify-between items-center border-t border-slate-200 pt-3">
@@ -509,20 +492,6 @@
         messageModal.classList.remove('hidden');
         document.getElementById('welcome-high-score').textContent = getLocalHighScore();
         document.getElementById('personal-play-count').textContent = localStorage.getItem('wordRushPersonalPlayCount') || 0;
-        
-        const howToPlayContainer = document.getElementById('how-to-play-container');
-        const scrollIndicator = document.getElementById('scroll-indicator');
-        if (howToPlayContainer.scrollHeight <= howToPlayContainer.clientHeight) {
-            scrollIndicator.classList.add('hidden');
-        }
-        howToPlayContainer.onscroll = () => {
-            if (howToPlayContainer.scrollHeight - howToPlayContainer.scrollTop <= howToPlayContainer.clientHeight + 1) {
-                scrollIndicator.classList.add('hidden');
-            } else {
-                scrollIndicator.classList.remove('hidden');
-            }
-        };
-
         document.getElementById('modal-button').onclick = async () => {
             const statsRef = doc(db, "gameStats", "stats");
             await updateDoc(statsRef, { playCount: increment(1) });
