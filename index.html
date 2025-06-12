@@ -56,7 +56,6 @@
         }
         .current-letter { animation: pop-in 0.2s ease-out; }
         .modal-enter { animation: pop-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
-
     </style>
 </head>
 <body class="bg-slate-100 flex justify-center items-start md:items-center min-h-screen">
@@ -133,7 +132,7 @@
     let score = 0, timer = GAME_TIME, timerInterval, wordSet = new Set(), foundWords = [], selectedTiles = [], isMouseDown = false;
     let tilePositions = [], dictionaryTrie;
 
-     // --- Trie Data Structure for Fast Lookups ---
+    // --- Trie Data Structure for Fast Lookups ---
     class TrieNode {
         constructor() { this.children = {}; this.isEndOfWord = false; }
     }
@@ -457,35 +456,41 @@
                     <span>Word Worm</span>
                 </h1>
                 <p class="text-slate-500 text-sm mb-4">The fast-paced word finding game!</p>
-                <div class="text-left space-y-2 bg-slate-100 p-4 rounded-lg mb-4">
+                <div class="text-left space-y-2 bg-slate-100 p-3 rounded-lg mb-4">
                     <h3 class="text-md font-bold text-slate-700 text-center mb-2">How to Play</h3>
-                    <ul class="space-y-2 text-base">
-                         <li class="flex items-start">
-                             <span class="text-xl mr-2">🏆</span>
-                            <span><strong>Your Goal:</strong> Score as many points as you can in 60 seconds!</span>
+                    <ul class="space-y-2 text-sm">
+                        <li class="flex items-start">
+                            <span class="text-lg mr-2">🏆</span>
+                            <span class="flex-1 text-left"><strong>Your Goal:</strong> Score as many points as you can in 60 seconds!</span>
                         </li>
-                         <li class="flex items-start">
-                            <span class="text-xl mr-2">👉</span>
-                            <span><strong>How to Score:</strong> Swipe adjacent letters to make words (3+ letters).</span>
+                        <li class="flex items-start">
+                            <span class="text-lg mr-2">👉</span>
+                            <span class="flex-1 text-left"><strong>How to Score:</strong> Swipe adjacent letters to make words (3+ letters).</span>
                         </li>
-                         <li class="flex items-start">
-                            <span class="text-xl mr-2">⭐</span>
-                            <span><strong>Pro-Tip:</strong> Use bonuses and long words to maximize your score!</span>
+                        <li class="flex items-start">
+                            <span class="text-lg mr-2">⭐</span>
+                            <div class="flex-1 text-left">
+                                <strong>Pro-Tip:</strong> Use bonuses and long words to maximize your score!
+                                <ul class="text-xs text-slate-600 mt-1 pl-4 space-y-1">
+                                    <li><strong>Bonus Tiles:</strong> DL (Double Letter), TL (Triple Letter), DW (Double Word), +5s (Extra Time).</li>
+                                    <li><strong>Long Word Bonus:</strong> 4 Letters: +2, 5: +5, 6: +10, 7+: +20</li>
+                                </ul>
+                            </div>
                         </li>
                     </ul>
                 </div>
-                 <button id="modal-button" class="bg-green-500 hover:bg-green-600 w-full text-white font-bold py-3 px-6 rounded-lg text-lg shadow-lg transition-transform hover:scale-105 mb-3">Let's Go!</button>
-                 <div class="flex justify-between items-center border-t border-slate-200 pt-3">
+                <button id="modal-button" class="bg-green-500 hover:bg-green-600 w-full text-white font-bold py-3 px-6 rounded-lg text-lg shadow-lg transition-transform hover:scale-105 mb-3">Let's Go!</button>
+                <div class="flex justify-between items-center border-t border-slate-200 pt-3">
                     <div class="font-bold text-slate-600 text-base flex items-center">
                         <span class="text-xl mr-1">🏆</span>Your High: <span id="welcome-high-score" class="ml-1">0</span>
                     </div>
                     <button id="show-leaderboard-button" class="font-bold text-green-500 hover:text-green-600 text-base flex items-center">
                         Leaderboard <span class="text-xl ml-1">🌍</span>
                     </button>
-                 </div>
-                 <p class="text-xs text-slate-400 mt-2">You've played <span id="personal-play-count">0</span> games!</p>
-                 <p class="text-xs text-slate-400">${playCount.toLocaleString()} games played globally</p>
-                 ${error ? `<p class="text-red-500 mt-4">${error}</p>` : ''}
+                </div>
+                <p class="text-xs text-slate-400 mt-2">You've played <span id="personal-play-count">0</span> games!</p>
+                <p class="text-xs text-slate-400">${playCount.toLocaleString()} games played globally</p>
+                ${error ? `<p class="text-red-500 mt-4">${error}</p>` : ''}
             </div>
         `;
         gameContentEl.classList.add('blurred');
@@ -538,7 +543,6 @@
             modalContent.classList.remove('blurred');
         };
     }
-
 
     async function showEndGameScreen() {
         endGameModalContent.innerHTML = `<div class="bg-white rounded-2xl shadow-2xl p-6 text-center w-full max-w-sm mx-auto modal-enter">
@@ -736,9 +740,37 @@
     }
 
     // --- Smart Board Generation ---
+    // NEW: Function to check for 2x2 clumps of all vowels or all consonants
+    function checkNoClumps(board) {
+        for (let row = 0; row <= 2; row++) {
+            for (let col = 0; col <= 2; col++) {
+                const topLeft = row * GRID_COLS + col;
+                const topRight = topLeft + 1;
+                const bottomLeft = topLeft + GRID_COLS;
+                const bottomRight = bottomLeft + 1;
+                const square = [
+                    board[topLeft],
+                    board[topRight],
+                    board[bottomLeft],
+                    board[bottomRight]
+                ];
+                const allVowels = square.every(letter => VOWELS.includes(letter));
+                const allConsonants = square.every(letter => !VOWELS.includes(letter));
+                if (allVowels || allConsonants) {
+                    console.log(`Clump detected at row ${row}, col ${col}: ${square.join(',')}`);
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    // MODIFIED: Added clump check and logging for rejections
     function generateAndValidateBoard(currentBoard = null) {
         let board;
+        let attemptCount = 0;
         for (let attempts = 0; attempts < 200; attempts++) {
+            attemptCount++;
             board = currentBoard ? [...currentBoard] : new Array(GRID_SIZE).fill(null);
 
             for (let i = 0; i < GRID_SIZE; i++) {
@@ -748,37 +780,52 @@
             }
             
             if (isBoardPlayable(board)) {
+                console.log(`Board generated successfully after ${attemptCount} attempts`);
                 return board;
             }
             
             board = null; 
         }
         
-        console.warn("Failed to generate a high-quality board, using last random attempt.");
+        console.warn(`Failed to generate a high-quality board after ${attemptCount} attempts, using last random attempt.`);
         return board || Array.from({ length: GRID_SIZE }, () => getRandomLetter());
     }
 
+    // MODIFIED: Added clump check and detailed rejection logging
     function isBoardPlayable(board) {
         const vowelCount = board.filter(l => VOWELS.includes(l)).length;
-        if (vowelCount < 3 || vowelCount > 7) return false;
+        if (vowelCount < 3 || vowelCount > 7) {
+            console.log(`Board rejected: Invalid vowel count (${vowelCount})`);
+            return false;
+        }
 
         const hardCount = board.filter(l => HARD_CONSONANTS.includes(l)).length;
-        if (hardCount > 1) return false;
+        if (hardCount > 1) {
+            console.log(`Board rejected: Too many hard consonants (${hardCount})`);
+            return false;
+        }
         
         const qIndex = board.indexOf('Q');
-        if(qIndex !== -1) {
+        if (qIndex !== -1) {
             const neighbors = getNeighbors(qIndex, board);
-            if(!neighbors.some(l => l === 'U')) return false;
+            if (!neighbors.some(l => l === 'U')) {
+                console.log(`Board rejected: 'Q' without 'U' neighbor`);
+                return false;
+            }
         }
 
         const foundWords = solveBoard(board);
         const fourLetterWords = Array.from(foundWords).filter(w => w.length >= 4);
         const threeLetterWords = Array.from(foundWords).filter(w => w.length === 3);
-
         if (fourLetterWords.length < 2 || threeLetterWords.length < 2) {
+            console.log(`Board rejected: Insufficient words (3-letter: ${threeLetterWords.length}, 4+-letter: ${fourLetterWords.length})`);
             return false;
         }
 
+        if (!checkNoClumps(board)) {
+            return false;
+        }
+        
         return true;
     }
 
@@ -829,7 +876,6 @@
             }
         }
     }
-
 
     document.addEventListener('DOMContentLoaded', main);
 </script>
