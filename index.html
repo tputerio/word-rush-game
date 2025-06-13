@@ -658,6 +658,11 @@
         const loadingEl = document.getElementById('leaderboard-loading-secondary');
         
         const displayTab = (type) => {
+            if (!db) { // Check if Firebase is not initialized
+                listEl.innerHTML = `<p class="text-red-500 text-center p-4">Leaderboard is offline.</p>`;
+                if (loadingEl) loadingEl.style.display = 'none';
+                return;
+            }
             if(type === 'daily') {
                 dailyTab.classList.add('active');
                 allTimeTab.classList.remove('active');
@@ -751,8 +756,8 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-2 gap-4 mb-2 text-left">
-                    <div>
+                <div class="grid grid-cols-5 gap-4 mb-2 text-left"> <!-- Changed to grid-cols-5 -->
+                    <div class="col-span-3"> <!-- Leaderboard column, now takes 3 out of 5 columns -->
                         <h3 class="text-xl font-bold text-slate-700 mb-2 border-b pb-2">Leaderboard</h3>
                         <div class="flex p-1 bg-slate-100 rounded-lg mb-2">
                             <button id="endgame-daily-tab" class="tab-button flex-1 py-1 px-2 rounded-md font-semibold text-xs transition-colors duration-200">Daily</button>
@@ -763,7 +768,7 @@
                              <ol id="leaderboard-list-endgame" class="space-y-1"></ol>
                         </div>
                     </div>
-                    <div>
+                    <div class="col-span-2"> <!-- Your Words column, now takes 2 out of 5 columns -->
                          <h3 class="text-xl font-bold text-slate-700 mb-2 border-b pb-2">Your Words</h3>
                          <div class="space-y-1 max-h-44 overflow-y-auto pr-2">${foundWordsHTML}</div>
                     </div>
@@ -779,6 +784,11 @@
         const displayTab = (type) => {
             const listEl = document.getElementById('leaderboard-list-endgame');
             const loadingEl = document.getElementById('endgame-leaderboard-loading');
+            if (!db) { // Check if Firebase is not initialized
+                listEl.innerHTML = `<p class="text-red-500 text-center p-4">Leaderboard is offline.</p>`;
+                if (loadingEl) loadingEl.style.display = 'none';
+                return;
+            }
             if(type === 'daily') {
                 dailyTab.classList.add('active');
                 allTimeTab.classList.remove('active');
