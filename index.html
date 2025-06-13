@@ -60,6 +60,10 @@
         /* Scroll Indicator */
         @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
         .scroll-indicator { animation: bounce 1.5s infinite; transition: opacity 0.3s; }
+        .tab-button.active {
+            background-color: #3b82f6;
+            color: white;
+        }
     </style>
 </head>
 <body class="bg-slate-100 flex justify-center items-start md:items-center min-h-screen">
@@ -111,7 +115,7 @@
     // --- Firebase SDKs ---
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
     import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
-    import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit, doc, getDoc, updateDoc, increment } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
+    import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit, doc, getDoc, setDoc, updateDoc, increment, runTransaction, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
 
     // --- Config ---
     const [GRID_SIZE, GRID_COLS, GAME_TIME] = [16, 4, 60];
@@ -196,11 +200,6 @@
                 modalButton.disabled = false;
                 modalButton.innerHTML = `<span>Let's Go!</span>`;
                 modalButton.onclick = () => {
-                    // Increment play count if firebase is available
-                    if (db) {
-                        const statsRef = doc(db, "gameStats", "stats");
-                        updateDoc(statsRef, { playCount: increment(1) }).catch(console.warn);
-                    }
                     gameContentEl.classList.remove('blurred');
                     messageModal.classList.add('hidden');
                     startGame();
@@ -298,6 +297,10 @@
         displayHighScore();
         timer = GAME_TIME; updateTimerUI();
         grid.style.pointerEvents = 'auto';
+        if (db) {
+            const statsRef = doc(db, "gameStats", "stats");
+            updateDoc(statsRef, { playCount: increment(1) }).catch(console.warn);
+        }
         timerInterval = setInterval(() => {
             timer--; updateTimerUI();
             if (timer <= 0) endGame();
@@ -308,6 +311,7 @@
         clearInterval(timerInterval);
         grid.style.pointerEvents = 'none';
         saveLocalHighScore(score);
+        saveGameHistoryAndStats(score, foundWords);
         showEndGameScreen();
     }
 
@@ -372,7 +376,7 @@
                 updateTimerUI();
             }
 
-            foundWords.push({ word, score: finalScore });
+            foundWords.push({ word, score: finalScore, length: word.length });
             createFlyingScore(finalScore, selectedTiles[0]);
             triggerConfetti(selectedTiles);
             setTimeout(() => { score += finalScore; updateScoreDisplay(); }, 500);
@@ -420,7 +424,7 @@
         drawLines();
     }
 
-    // --- Leaderboard ---
+    // --- Leaderboard & Stats---
     function saveLocalHighScore(s) {
         const currentHighScore = getLocalHighScore();
         if (s > currentHighScore) {
@@ -428,16 +432,93 @@
         }
     }
     function getLocalHighScore() { return parseInt(localStorage.getItem('wordRushHighScore')) || 0; }
-    async function saveGlobalScore(name, scoreToSave) {
-        if(!name || scoreToSave === 0 || !db) return;
+    
+    async function saveGameHistoryAndStats(finalScore, wordsFound) {
+        if (!db || !auth.currentUser) return; // Cant save if firebase is offline
+        const userId = auth.currentUser.uid;
+        
+        // 1. Save the detailed game session to the player's subcollection
+        const gameData = {
+            score: finalScore,
+            timestamp: serverTimestamp(),
+            words: wordsFound.map(w => ({ word: w.word, score: w.score, length: w.length }))
+        };
+        const playerDocRef = doc(db, "players", userId);
+        
         try {
-            localStorage.setItem('wordRushPlayerName', name);
-            await addDoc(collection(db, "scores"), {
-                name: name,
-                score: scoreToSave,
-                timestamp: new Date()
+            await addDoc(collection(db, `players/${userId}/games`), gameData);
+            
+            // 2. Update the player's aggregate stats using a transaction for safety
+            await runTransaction(db, async (transaction) => {
+                const currentPlayerDoc = await transaction.get(playerDocRef);
+                
+                let totalGames = 1;
+                let totalWordLength = wordsFound.reduce((sum, word) => sum + word.length, 0);
+                let totalWords = wordsFound.length;
+
+                if (currentPlayerDoc.exists()) {
+                    const oldData = currentPlayerDoc.data();
+                    totalGames = (oldData.totalGamesPlayed || 0) + 1;
+                    const oldTotalWordLength = (oldData.avgWordLength || 0) * (oldData.totalGamesPlayed ? (await getDocs(collection(db, `players/${userId}/games`))).size -1 : 0);
+                    const oldTotalWords = (await getDocs(collection(db, `players/${userId}/games`))).docs.flatMap(d => d.data().words).length - totalWords;
+                    totalWordLength += oldTotalWordLength;
+                    totalWords += oldTotalWords;
+                }
+                
+                const avgWordLength = totalWords > 0 ? (totalWordLength / totalWords) : 0;
+
+                transaction.set(playerDocRef, {
+                    totalGamesPlayed: totalGames,
+                    avgWordLength: parseFloat(avgWordLength.toFixed(2)),
+                    lastPlayed: serverTimestamp()
+                }, { merge: true });
             });
-        } catch(e) { console.error("Error adding document: ", e); }
+        } catch (e) {
+            console.error("Error saving game history:", e);
+        }
+    }
+
+    async function submitLeaderboardScore(name, scoreToSave) {
+        if(!name || scoreToSave === 0 || !db || !auth.currentUser) return;
+        const userId = auth.currentUser.uid;
+        localStorage.setItem('wordRushPlayerName', name);
+
+        // Update player's name
+        await setDoc(doc(db, "players", userId), { name: name }, { merge: true });
+
+        // Submit to all-time leaderboard
+        await addDoc(collection(db, "scores"), {
+            name: name,
+            score: scoreToSave,
+            timestamp: serverTimestamp()
+        });
+
+        // Submit to daily leaderboard
+        const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+        const dailyDocRef = doc(db, "dailyScores", today);
+
+        await runTransaction(db, async (transaction) => {
+            const dailyDoc = await transaction.get(dailyDocRef);
+            let leaderboard = [];
+            if(dailyDoc.exists()) {
+                leaderboard = dailyDoc.data().leaderboard || [];
+            }
+            
+            const existingEntryIndex = leaderboard.findIndex(entry => entry.userId === userId);
+            if (existingEntryIndex !== -1) {
+                if (leaderboard[existingEntryIndex].score < scoreToSave) {
+                    leaderboard[existingEntryIndex].score = scoreToSave;
+                }
+            } else {
+                leaderboard.push({ name, score: scoreToSave, userId });
+            }
+
+            leaderboard.sort((a, b) => b.score - a.score);
+            if (leaderboard.length > 20) {
+                leaderboard = leaderboard.slice(0, 20);
+            }
+            transaction.set(dailyDocRef, { leaderboard }, { merge: true });
+        });
     }
     
     // --- UI & Animations ---
@@ -618,6 +699,12 @@
     async function showLeaderboardModal() {
         leaderboardModalContent.innerHTML = `<div class="bg-white rounded-2xl shadow-2xl p-6 text-center w-full max-w-xs mx-auto modal-enter">
             <h2 class="text-2xl font-bold text-slate-800 mb-4 flex items-center justify-center">Leaderboard <span class="text-2xl ml-2">🌍</span></h2>
+            
+            <div class="flex p-1 bg-slate-200 rounded-lg mb-4">
+                <button id="daily-tab" class="tab-button flex-1 py-1 px-2 rounded-md font-semibold text-sm transition-colors duration-200">Daily</button>
+                <button id="all-time-tab" class="tab-button flex-1 py-1 px-2 rounded-md font-semibold text-sm transition-colors duration-200">All-Time</button>
+            </div>
+
             <div id="leaderboard-loading-secondary" class="text-slate-500 p-2">Fetching Scores...</div>
             <div id="leaderboard-scroll-container" class="relative max-h-64 overflow-y-auto">
                 <ol id="leaderboard-list-simple" class="space-y-1 text-left"></ol>
@@ -630,25 +717,60 @@
         modalContent.classList.add('blurred');
         leaderboardModal.classList.remove('hidden');
 
-        const leaderboardList = document.getElementById('leaderboard-list-simple');
+        const dailyTab = document.getElementById('daily-tab');
+        const allTimeTab = document.getElementById('all-time-tab');
+        const listEl = document.getElementById('leaderboard-list-simple');
         const loadingEl = document.getElementById('leaderboard-loading-secondary');
         
+        const displayTab = (type) => {
+            if(type === 'daily') {
+                dailyTab.classList.add('active');
+                allTimeTab.classList.remove('active');
+                fetchAndDisplayLeaderboard('daily', listEl, loadingEl);
+            } else {
+                allTimeTab.classList.add('active');
+                dailyTab.classList.remove('active');
+                fetchAndDisplayLeaderboard('all-time', listEl, loadingEl);
+            }
+        };
+
+        dailyTab.onclick = () => displayTab('daily');
+        allTimeTab.onclick = () => displayTab('all-time');
+        
+        displayTab('daily'); // Default to daily
+
+        document.getElementById('close-leaderboard-button').onclick = () => {
+            leaderboardModal.classList.add('hidden');
+            modalContent.classList.remove('blurred');
+        };
+    }
+
+    async function fetchAndDisplayLeaderboard(type, listElement, loadingElement) {
+        if (!listElement) return;
+        if(loadingElement) loadingElement.style.display = 'block';
+        listElement.innerHTML = '';
+        
         if (!db) {
-            loadingEl.innerHTML = `<p class="text-red-500 text-center p-4">Leaderboard offline.</p>`;
-            document.getElementById('close-leaderboard-button').onclick = () => {
-                leaderboardModal.classList.add('hidden');
-                modalContent.classList.remove('blurred');
-            };
+            listElement.innerHTML = `<p class="text-red-500 text-center p-4">Leaderboard offline.</p>`;
+            if(loadingElement) loadingElement.style.display = 'none';
             return;
         }
 
         let leaderboardHTML = `<p class="text-slate-500 text-center p-4">No scores yet.</p>`;
         
         try {
-            const q = query(collection(db, "scores"), orderBy("score", "desc"), limit(10));
-            const querySnapshot = await getDocs(q);
-            const highScores = [];
-            querySnapshot.forEach((doc) => highScores.push(doc.data()));
+            let highScores = [];
+            if(type === 'daily') {
+                const today = new Date().toISOString().slice(0, 10);
+                const dailyDoc = await getDoc(doc(db, 'dailyScores', today));
+                if (dailyDoc.exists()) {
+                    highScores = dailyDoc.data().leaderboard || [];
+                }
+            } else { // all-time
+                const q = query(collection(db, "scores"), orderBy("score", "desc"), limit(10));
+                const querySnapshot = await getDocs(q);
+                querySnapshot.forEach((doc) => highScores.push(doc.data()));
+            }
 
             if (highScores.length > 0) {
                 leaderboardHTML = highScores.map((s, i) => `
@@ -660,36 +782,12 @@
                 `).join('');
             }
         } catch (e) {
-            console.error("Could not fetch leaderboard", e);
+            console.error(`Could not fetch ${type} leaderboard`, e);
             leaderboardHTML = `<p class="text-red-500 text-center p-4">Could not load leaderboard.</p>`;
         }
 
-        loadingEl.classList.add('hidden');
-        leaderboardList.innerHTML = leaderboardHTML;
-        
-        // Logic for scroll indicator
-        const leaderboardScrollContainer = document.getElementById('leaderboard-scroll-container');
-        const leaderboardScrollIndicator = document.getElementById('leaderboard-scroll-indicator');
-
-        if (leaderboardScrollContainer && leaderboardScrollIndicator) {
-            const checkScroll = () => {
-                const isScrollable = leaderboardScrollContainer.scrollHeight > leaderboardScrollContainer.clientHeight;
-                const isAtBottom = leaderboardScrollContainer.scrollHeight - leaderboardScrollContainer.scrollTop <= leaderboardScrollContainer.clientHeight + 2;
-                
-                if (!isScrollable || isAtBottom) {
-                    leaderboardScrollIndicator.style.opacity = '0';
-                } else {
-                    leaderboardScrollIndicator.style.opacity = '1';
-                }
-            };
-            leaderboardScrollContainer.addEventListener('scroll', checkScroll);
-            setTimeout(checkScroll, 100); // Check after content has rendered
-        }
-        
-        document.getElementById('close-leaderboard-button').onclick = () => {
-            leaderboardModal.classList.add('hidden');
-            modalContent.classList.remove('blurred');
-        };
+        if(loadingElement) loadingElement.style.display = 'none';
+        listElement.innerHTML = leaderboardHTML;
     }
 
     function showEndGameScreen() {
@@ -714,11 +812,16 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-2 gap-4 mb-6 text-left">
+                <div class="grid grid-cols-2 gap-4 mb-2 text-left">
                     <div>
                         <h3 class="text-xl font-bold text-slate-700 mb-2 border-b pb-2">Leaderboard</h3>
-                        <div id="leaderboard-list-endgame" class="space-y-0.5 max-h-40 overflow-y-auto pr-2">
-                            <div class="text-slate-500 p-2 text-center">Fetching Scores...</div>
+                        <div class="flex p-1 bg-slate-100 rounded-lg mb-2">
+                            <button id="endgame-daily-tab" class="tab-button flex-1 py-1 px-2 rounded-md font-semibold text-xs transition-colors duration-200">Daily</button>
+                            <button id="endgame-all-time-tab" class="tab-button flex-1 py-1 px-2 rounded-md font-semibold text-xs transition-colors duration-200">All-Time</button>
+                        </div>
+                        <div id="leaderboard-list-endgame-container" class="space-y-0.5 max-h-32 overflow-y-auto pr-2">
+                             <div id="endgame-leaderboard-loading" class="text-slate-500 p-2 text-center text-sm">Fetching...</div>
+                             <ol id="leaderboard-list-endgame" class="space-y-1"></ol>
                         </div>
                     </div>
                     <div>
@@ -726,46 +829,31 @@
                          <div class="space-y-1 max-h-40 overflow-y-auto pr-2">${foundWordsHTML}</div>
                     </div>
                 </div>
-                <button id="play-again-button" class="bg-green-500 hover:bg-green-600 w-full text-white font-bold py-3 px-8 rounded-lg text-lg shadow-lg transition-transform hover:scale-105">Play Again</button>
+                <button id="play-again-button" class="bg-green-500 hover:bg-green-600 w-full text-white font-bold py-3 px-8 rounded-lg text-lg shadow-lg transition-transform hover:scale-105 mt-4">Play Again</button>
             </div>`;
         
         endGameModalContent.innerHTML = initialModalHTML;
 
-        const fetchAndDisplayLeaderboard = async () => {
-            const leaderboardListDiv = document.getElementById('leaderboard-list-endgame');
-            if (!leaderboardListDiv) return;
-
-            if (!db) { // New check
-                leaderboardListDiv.innerHTML = '<p class="text-slate-500 p-2 text-center">Offline</p>';
-                return;
+        const dailyTab = document.getElementById('endgame-daily-tab');
+        const allTimeTab = document.getElementById('endgame-all-time-tab');
+        const listEl = document.getElementById('leaderboard-list-endgame');
+        const loadingEl = document.getElementById('endgame-leaderboard-loading');
+        
+        const displayTab = (type) => {
+            if(type === 'daily') {
+                dailyTab.classList.add('active');
+                allTimeTab.classList.remove('active');
+            } else {
+                allTimeTab.classList.add('active');
+                dailyTab.classList.remove('active');
             }
-
-            let leaderboardHTML = '<ul><li class="text-slate-500 text-center p-2">No scores yet.</li></ul>';
-            try {
-                const q = query(collection(db, "scores"), orderBy("score", "desc"), limit(10));
-                const querySnapshot = await getDocs(q);
-                const highScores = [];
-                querySnapshot.forEach((doc) => {
-                    highScores.push(doc.data());
-                });
-
-                if (highScores.length > 0) {
-                     leaderboardHTML = highScores.map((s, i) => `
-                        <li class="flex justify-between items-center py-1">
-                            <span class="font-bold text-slate-700 w-8">${i + 1}.</span>
-                            <span class="flex-grow text-left truncate mr-2">${s.name}</span>
-                            <span class="font-bold text-green-500">${s.score}</span>
-                        </li>`).join('');
-                     leaderboardHTML = `<ul class="space-y-0.5">${leaderboardHTML}</ul>`
-                }
-            } catch (e) {
-                console.error("Could not fetch leaderboard", e);
-                leaderboardHTML = '<p class="text-red-500 text-center p-2">Could not load leaderboard.</p>';
-            }
-            leaderboardListDiv.innerHTML = leaderboardHTML;
+            fetchAndDisplayLeaderboard(type, listEl, loadingEl);
         };
 
-        fetchAndDisplayLeaderboard();
+        dailyTab.onclick = () => displayTab('daily');
+        allTimeTab.onclick = () => displayTab('all-time');
+        
+        displayTab('daily'); // Default to daily
             
         document.getElementById('play-again-button').onclick = resetGame;
         const nameInput = document.getElementById('player-name');
@@ -776,12 +864,12 @@
             button.textContent = 'Submitting...';
             const playerName = nameInput.value.trim();
             if (playerName) {
-                await saveGlobalScore(playerName, score);
+                await submitLeaderboardScore(playerName, score);
                 const form = document.getElementById('submit-score-form');
                 if (form) {
                     form.innerHTML = `<div class="flex items-center justify-center text-green-600 font-bold mb-4 pop-in"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg><span>Score Submitted!</span></div>`;
                 }
-                fetchAndDisplayLeaderboard(); // Refresh leaderboard after submitting
+                displayTab(dailyTab.classList.contains('active') ? 'daily' : 'all-time');
             } else {
                 button.disabled = false;
                 button.textContent = 'Submit';
@@ -886,7 +974,6 @@
     }
 
     // --- Smart Board Generation ---
-    // NEW: Function to check for 2x2 clumps of all vowels or all consonants
     function checkNoClumps(board) {
         for (let row = 0; row <= 2; row++) {
             for (let col = 0; col <= 2; col++) {
@@ -911,7 +998,6 @@
         return true;
     }
 
-    // MODIFIED: Added clump check and logging for rejections
     function generateAndValidateBoard(currentBoard = null) {
         let board;
         let attemptCount = 0;
@@ -942,7 +1028,6 @@
         return board || Array.from({ length: GRID_SIZE }, () => getRandomLetter());
     }
 
-    // MODIFIED: Added clump check and detailed rejection logging
     function isBoardPlayable(board) {
         const vowelCount = board.filter(l => VOWELS.includes(l)).length;
         if (vowelCount < 3 || vowelCount > 7) {
