@@ -474,7 +474,7 @@
 
     function submitWord() {
         const word = selectedTiles.map(t => t.dataset.letter).join('');
-        if (word.length >= 3 && wordSet.has(word) && !foundWords.some(fw => fw.word === word)) {
+        if (word.length >= 3 && wordSet.has(word)) {
             let baseScore = 0;
             let wordMultiplier = 1;
             let timeBonus = 0;
