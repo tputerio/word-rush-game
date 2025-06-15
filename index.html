@@ -73,7 +73,24 @@
             100% { transform: translate(-50%, -200%) scale(0.5); opacity: 0; }
         }
         #tutorial-slider.is-snapping {
-            transition: transform 0.3s ease-out;
+             transition: transform 0.3s ease-out;
+        }
+
+        .particle {
+            position: fixed;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #facc15;
+            z-index: 101;
+            animation: particle-anim 0.8s ease-out forwards;
+        }
+
+        @keyframes particle-anim {
+            to {
+                transform: var(--transform-end);
+                opacity: 0;
+            }
         }
     </style>
 </head>
@@ -81,24 +98,39 @@
 
 <div id="game-container" class="w-full max-w-sm mx-auto p-4">
     <div id="game-content">
-        <div class="text-center mb-3">
-            <h1 class="text-3xl font-black text-slate-800 tracking-tighter flex items-center justify-center">
-                 <img src="https://raw.githubusercontent.com/tputerio/word-rush-game/main/word-worm-logo.png" alt="Word Worm Logo" class="w-9 h-9 mr-2">
-                <span>Word Worm</span>
-            </h1>
+        <div class="flex items-center mb-3">
+            <!-- Game Title centered, Home Button to the right -->
+            <div class="flex-grow flex items-center justify-center relative">
+                <h1 class="text-3xl font-black text-slate-800 tracking-tighter flex items-center justify-center">
+                     <img src="https://raw.githubusercontent.com/tputerio/word-rush-game/main/word-worm-logo.png" alt="Word Worm Logo" class="w-9 h-9 mr-2">
+                    <span>Word Worm</span>
+                </h1>
+                <!-- Home Button positioned absolutely relative to this centered container -->
+                <button id="home-button" class="absolute right-0 top-1/2 -translate-y-1/2 bg-slate-200 hover:bg-slate-300 text-slate-700 p-2 rounded-full shadow-md transition-transform hover:scale-105 hidden z-20" title="Return Home">
+                    🏠 <!-- Home emoji -->
+                </button>
+            </div>
         </div>
         <div class="grid grid-cols-3 items-center text-center bg-white rounded-xl shadow-lg p-2 mb-3">
-            <div>
+            <div id="high-score-display">
                 <div class="text-xs font-bold text-slate-500 uppercase tracking-wider">High</div>
                 <div id="high-score" class="text-3xl font-black text-slate-400">0</div>
+            </div>
+            <div id="words-found-display" class="hidden">
+                 <div class="text-xs font-bold text-slate-500 uppercase tracking-wider"># Words</div>
+                 <div id="words-found-count" class="text-3xl font-black text-slate-800">0</div>
             </div>
             <div>
                 <div class="text-xs font-bold text-slate-500 uppercase tracking-wider">Score</div>
                 <div id="score" class="text-3xl font-black text-slate-800">0</div>
             </div>
-            <div>
+            <div id="timer-display"> <!-- Added id for toggling visibility -->
                 <div class="text-xs font-bold text-slate-500 uppercase tracking-wider">Time</div>
                 <div id="timer" class="text-3xl font-bold text-green-500 transition-all duration-300">60</div>
+            </div>
+             <div id="practice-mode-label" class="hidden"> <!-- New element for practice mode -->
+                <div class="text-xs font-bold text-blue-500 uppercase tracking-wider">Mode</div>
+                <div class="text-xl font-black text-blue-400">PRACTICE</div> <!-- Font size reduced here -->
             </div>
         </div>
         <div id="current-word-container" class="mb-3 p-2 bg-slate-200 rounded-lg shadow-inner h-[52px] flex items-center justify-center">
@@ -125,7 +157,7 @@
 <script type="module">
     // --- Firebase SDKs ---
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
-    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
     import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit, doc, getDoc, setDoc, updateDoc, increment, runTransaction, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
 
     // --- Config ---
@@ -139,17 +171,24 @@
     const gameContentEl = document.getElementById('game-content');
     const grid = document.getElementById('grid'), lineCanvas = document.getElementById('line-canvas'), ctx = lineCanvas.getContext('2d');
     const scoreEl = document.getElementById('score'), timerEl = document.getElementById('timer'), highScoreEl = document.getElementById('high-score');
+    const timerDisplayEl = document.getElementById('timer-display'); 
+    const practiceModeLabelEl = document.getElementById('practice-mode-label'); 
+    const homeButton = document.getElementById('home-button'); 
     const currentWordLettersEl = document.getElementById('current-word-letters');
     const messageModal = document.getElementById('message-modal'), modalContent = document.getElementById('modal-content');
     const endGameModal = document.getElementById('end-game-modal'), endGameModalContent = document.getElementById('end-game-modal-content');
     const leaderboardModal = document.getElementById('leaderboard-modal'), leaderboardModalContent = document.getElementById('leaderboard-modal-content');
+    const highScoreDisplay = document.getElementById('high-score-display');
+    const wordsFoundDisplay = document.getElementById('words-found-display');
+    const wordsFoundCount = document.getElementById('words-found-count');
 
     // --- Firebase State ---
-    let auth, db;
+    let auth, db, userId;
 
-    // --- State ---
+    // --- Game State ---
     let score = 0, timer = GAME_TIME, timerInterval, wordSet = new Set(), foundWords = [], selectedTiles = [], isMouseDown = false;
     let tilePositions = [], dictionaryTrie;
+    let isPracticeMode = false; 
 
     // --- Trie Data Structure for Fast Lookups ---
     class TrieNode {
@@ -177,22 +216,36 @@
 
     // --- Init ---
     function main() {
-        // Setup UI elements that don't depend on data
         setupEventListeners();
         displayHighScore();
-        
-        // Show the welcome screen immediately in a loading state
         showWelcomeScreen();
-        
-        // Load all necessary assets in the background
-        loadAssets();
+        loadAssets(); // This loads the dictionary and Firebase, then enables buttons
     }
     
     async function loadAssets() {
-        const modalButton = document.getElementById('modal-button');
+        const playGameModeButton = document.getElementById('play-game-mode-button');
+        const playPracticeButton = document.getElementById('play-practice-button');
         const loadingErrorEl = document.getElementById('loading-error');
         const globalPlayCountSpan = document.getElementById('global-play-count');
         const showLeaderboardButton = document.getElementById('show-leaderboard-button');
+
+        // Initial state for buttons (disabled during loading)
+        if (playGameModeButton) {
+            playGameModeButton.disabled = true;
+            playGameModeButton.innerHTML = `<div class="flex items-center justify-center">
+                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg><span>Loading Game...</span></div>`;
+        }
+        if (playPracticeButton) {
+            playPracticeButton.disabled = true;
+            playPracticeButton.innerHTML = `<div class="flex items-center justify-center">
+                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg><span>Loading Game...</span></div>`;
+        }
 
         // Load Dictionary (Critical Path)
         try {
@@ -200,29 +253,38 @@
             if (!res.ok) throw new Error(`Dictionary download failed: ${res.statusText}`);
             const words = (await res.text()).split('\n').map(w => w.trim().toUpperCase()).filter(w => w.length >= 3);
             wordSet = new Set(words);
-            wordSet.add("ZEN");
-            wordSet.add("KIN");
+            wordSet.add("ZEN"); // Adding specific words to dictionary
+            wordSet.add("KIN"); // Adding specific words to dictionary
             dictionaryTrie = new Trie();
             for (const word of wordSet) dictionaryTrie.insert(word);
             console.log("Dictionary loaded. Game is playable.");
             
-            createGrid();
-            if (modalButton) {
-                modalButton.disabled = false;
-                modalButton.innerHTML = `<span>Let's Go!</span>`;
-                modalButton.onclick = () => {
-                    gameContentEl.classList.remove('blurred');
-                    messageModal.classList.add('hidden');
-                    startGame();
-                };
+            createGrid(); // Create initial grid once dictionary is loaded
+            
+            // Enable buttons after dictionary is loaded
+            if (playGameModeButton) {
+                playGameModeButton.disabled = false;
+                // Update text and add emoji for "Game Mode"
+                playGameModeButton.innerHTML = `<div class="flex items-center justify-center"><span class="mr-2">⚡</span><span>Game Mode</span></div>`;
             }
+            if (playPracticeButton) {
+                playPracticeButton.disabled = false;
+                // Update text and add emoji for "Practice Mode"
+                playPracticeButton.innerHTML = `<div class="flex items-center justify-center"><span class="mr-2">📖</span><span>Practice</span></div>`;
+            }
+
         } catch (e) {
             console.error("Critical Asset loading failed (Dictionary):", e);
             if (loadingErrorEl) loadingErrorEl.textContent = "Error: Could not load game dictionary.";
-            if (modalButton) {
-                modalButton.innerHTML = `<span>Error Loading</span>`;
-                modalButton.classList.add('bg-red-500', 'cursor-not-allowed');
-                modalButton.classList.remove('bg-green-500');
+            if (playGameModeButton) {
+                playGameModeButton.innerHTML = `<span>Error Loading</span>`;
+                playGameModeButton.classList.add('bg-red-500', 'cursor-not-allowed');
+                playGameModeButton.classList.remove('bg-green-500');
+            }
+            if (playPracticeButton) {
+                playPracticeButton.innerHTML = `<span>Error Loading</span>`;
+                playPracticeButton.classList.add('bg-red-500', 'cursor-not-allowed');
+                playPracticeButton.classList.remove('bg-green-500');
             }
             return; // Stop if dictionary fails
         }
@@ -233,26 +295,24 @@
                 apiKey: "AIzaSyBa2DPRjwaI-G5mz-OmHVXEDJ4_MzBAZgA",
                 authDomain: "word-rush-game-9010a.firebaseapp.com",
                 projectId: "word-rush-game-9010a",
-                storageBucket: "word-rush-game-9010a.firebasestorage.app",
+                storageBucket: "word-rush-game-9010a.appspot.com",
                 messagingSenderId: "551838491871",
-                appId: "1:551838491871:web:757325be04daab9289b56a",
-                measurementId: "G-D0TSQFY1XS"
+                appId: "1:551838491871:web:757325be04daab9289b56a"
             };
             const app = initializeApp(firebaseConfig);
             auth = getAuth(app);
             db = getFirestore(app);
-            await signInAnonymously(auth);
-            console.log("Firebase connected.");
 
-            // Fetch Play Count
-            const statsRef = doc(db, "gameStats", "stats");
-            const docSnap = await getDoc(statsRef);
-            if (docSnap.exists()) {
-                if (globalPlayCountSpan) globalPlayCountSpan.textContent = docSnap.data().playCount.toLocaleString();
-            }
-            
-            // Enable Leaderboard button
-            if(showLeaderboardButton) showLeaderboardButton.disabled = false;
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    userId = user.uid;
+                    console.log("Firebase connected. User ID:", userId);
+                    if (showLeaderboardButton) showLeaderboardButton.disabled = false;
+                    fetchGlobalStats();
+                } else {
+                    signInAnonymously(auth).catch(err => console.error("Anonymous sign-in failed:", err));
+                }
+            });
 
         } catch (firebaseError) {
             console.warn("Firebase features failed to load, continuing in offline mode:", firebaseError);
@@ -263,9 +323,23 @@
             }
         }
     }
+
+    async function fetchGlobalStats() {
+        const globalPlayCountSpan = document.getElementById('global-play-count');
+        if (!db) return;
+        try {
+            const statsRef = doc(db, "gameStats", "stats");
+            const docSnap = await getDoc(statsRef);
+            if (docSnap.exists()) {
+                if (globalPlayCountSpan) globalPlayCountSpan.textContent = docSnap.data().playCount.toLocaleString();
+            }
+        } catch(e) {
+             console.warn("Could not fetch global stats:", e);
+             if (globalPlayCountSpan) globalPlayCountSpan.textContent = "N/A";
+        }
+    }
     
     function createGrid() {
-        // This function now safely assumes dictionaryTrie is available if called from loadAssets
         const board = generateAndValidateBoard();
         grid.innerHTML = '';
         for (let i = 0; i < GRID_SIZE; i++) {
@@ -301,37 +375,78 @@
     }
 
     // --- Gameplay ---
-    function startGame() {
-        clearInterval(timerInterval); // Safety clear to prevent multiple timers
-        let personalPlayCount = parseInt(localStorage.getItem('wordRushPersonalPlayCount')) || 0;
-        localStorage.setItem('wordRushPersonalPlayCount', personalPlayCount + 1);
-        displayHighScore();
-        timer = GAME_TIME; updateTimerUI();
-        grid.style.pointerEvents = 'auto';
-        if (db) {
-            const statsRef = doc(db, "gameStats", "stats");
-            updateDoc(statsRef, { playCount: increment(1) }).catch(console.warn);
+    function startGame(practiceMode = false) {
+        isPracticeMode = practiceMode; 
+        
+        clearInterval(timerInterval); 
+        score = 0; 
+        foundWords = []; 
+
+        updateScoreDisplay(); 
+        displayHighScore(); 
+        
+        // Toggle timer display and practice mode label
+        if (isPracticeMode) {
+            timerDisplayEl.classList.add('hidden');
+            practiceModeLabelEl.classList.remove('hidden');
+            highScoreDisplay.classList.add('hidden');
+            wordsFoundDisplay.classList.remove('hidden');
+            wordsFoundCount.textContent = '0';
+        } else {
+            timer = GAME_TIME; 
+            updateTimerUI(); 
+            timerDisplayEl.classList.remove('hidden');
+            practiceModeLabelEl.classList.add('hidden');
+            highScoreDisplay.classList.remove('hidden');
+            wordsFoundDisplay.classList.add('hidden');
         }
-        timerInterval = setInterval(() => {
-            timer--; updateTimerUI();
-            if (timer <= 0) endGame();
-        }, 1000);
+
+        grid.style.pointerEvents = 'auto'; 
+        homeButton.classList.remove('hidden'); // Show home button in both modes
+        
+        if (!isPracticeMode) { 
+            let personalPlayCount = parseInt(localStorage.getItem('wordRushPersonalPlayCount')) || 0;
+            localStorage.setItem('wordRushPersonalPlayCount', personalPlayCount + 1);
+
+            if (db) {
+                const statsRef = doc(db, "gameStats", "stats");
+                updateDoc(statsRef, { playCount: increment(1) }).catch(console.warn);
+            }
+            timerInterval = setInterval(() => {
+                timer--; updateTimerUI();
+                if (timer <= 0) endGame();
+            }, 1000);
+        }
+        
+        createGrid(); 
+        gameContentEl.classList.remove('blurred');
+        messageModal.classList.add('hidden');
     }
     
     function endGame() {
         clearInterval(timerInterval);
         grid.style.pointerEvents = 'none';
-        saveLocalHighScore(score);
-        saveGameHistoryAndStats(score, foundWords);
-        showEndGameScreen();
+        homeButton.classList.add('hidden'); // Hide home button when game ends and modal shows
+
+        if (!isPracticeMode) { 
+            saveLocalHighScore(score);
+            saveGameHistoryAndStats(score, foundWords);
+            showEndGameScreen();
+        } else {
+            resetGame(); // In practice mode, just reset and go to welcome screen
+        }
     }
 
     function resetGame() {
         endGameModal.classList.add('hidden');
-        score = 0; foundWords = [];
+        score = 0; 
+        foundWords = [];
         updateScoreDisplay(); 
+        // Reset UI to default state (show high score, hide # words)
+        highScoreDisplay.classList.remove('hidden');
+        wordsFoundDisplay.classList.add('hidden');
         showWelcomeScreen();
-        loadAssets();
+        loadAssets(); // Crucial: Re-run loadAssets to re-enable buttons after re-showing welcome screen
     }
     
     // --- Input & Word Logic ---
@@ -359,7 +474,7 @@
 
     function submitWord() {
         const word = selectedTiles.map(t => t.dataset.letter).join('');
-        if (word.length >= 3 && wordSet.has(word)) {
+        if (word.length >= 3 && wordSet.has(word) && !foundWords.some(fw => fw.word === word)) {
             let baseScore = 0;
             let wordMultiplier = 1;
             let timeBonus = 0;
@@ -382,15 +497,24 @@
             else if (word.length === 5) finalScore += 5;
             else if (word.length === 4) finalScore += 2;
 
-            if (timeBonus > 0) {
+            if (timeBonus > 0 && !isPracticeMode) { 
                 timer += timeBonus;
                 updateTimerUI();
             }
 
             foundWords.push({ word, score: finalScore, length: word.length });
+            if(isPracticeMode) {
+                wordsFoundCount.textContent = foundWords.length;
+            }
+
             createFlyingScore(finalScore, selectedTiles[0]);
             triggerConfetti(selectedTiles);
-            setTimeout(() => { score += finalScore; updateScoreDisplay(); }, 500);
+            
+            // Always update score in both modes now
+            setTimeout(() => { 
+                score += finalScore; 
+                updateScoreDisplay(); 
+            }, 500);
             replaceSelectedTiles();
         }
         clearSelection();
@@ -445,10 +569,9 @@
     function getLocalHighScore() { return parseInt(localStorage.getItem('wordRushHighScore')) || 0; }
     
     async function saveGameHistoryAndStats(finalScore, wordsFound) {
-        if (!db || !auth.currentUser) return; // Cant save if firebase is offline
-        const userId = auth.currentUser.uid;
+        // Only save in normal mode
+        if (!db || !userId || isPracticeMode) return; 
         
-        // 1. Save the detailed game session to the player's subcollection
         const gameData = {
             score: finalScore,
             timestamp: serverTimestamp(),
@@ -459,21 +582,27 @@
         try {
             await addDoc(collection(db, `players/${userId}/games`), gameData);
             
-            // 2. Update the player's aggregate stats using a transaction for safety
             await runTransaction(db, async (transaction) => {
                 const currentPlayerDoc = await transaction.get(playerDocRef);
                 
                 let totalGames = 1;
-                let totalWordLength = wordsFound.reduce((sum, word) => sum + word.length, 0);
-                let totalWords = wordsFound.length;
+                let totalWordLength = wordsFound.reduce((sum, word) => sum + word.length, 0); // Correctly calculate for current game
+                let totalWords = wordsFound.length; // Correctly calculate for current game
 
                 if (currentPlayerDoc.exists()) {
                     const oldData = currentPlayerDoc.data();
                     totalGames = (oldData.totalGamesPlayed || 0) + 1;
-                    const oldTotalWordLength = (oldData.avgWordLength || 0) * (oldData.totalGamesPlayed ? (await getDocs(collection(db, `players/${userId}/games`))).size -1 : 0);
-                    const oldTotalWords = (await getDocs(collection(db, `players/${userId}/games`))).docs.flatMap(d => d.data().words).length - totalWords;
-                    totalWordLength += oldTotalWordLength;
-                    totalWords += oldTotalWords;
+                    // Recalculate cumulative stats from all games to ensure accuracy
+                    const allGamesSnapshot = await getDocs(collection(db, `players/${userId}/games`));
+                    let cumulativeWordLength = 0;
+                    let cumulativeWordsCount = 0;
+                    allGamesSnapshot.forEach(gameDoc => {
+                        const gameWords = gameDoc.data().words || [];
+                        cumulativeWordLength += gameWords.reduce((sum, word) => sum + word.length, 0);
+                        cumulativeWordsCount += gameWords.length;
+                    });
+                    totalWordLength = cumulativeWordLength;
+                    totalWords = cumulativeWordsCount;
                 }
                 
                 const avgWordLength = totalWords > 0 ? (totalWordLength / totalWords) : 0;
@@ -490,36 +619,34 @@
     }
 
     async function submitLeaderboardScore(name, scoreToSave) {
-        if (!name || scoreToSave === 0 || !db || !auth.currentUser) return;
-        const userId = auth.currentUser.uid;
+        // Don't save practice scores
+        if (!name || scoreToSave === 0 || !db || !userId || isPracticeMode) return; 
         localStorage.setItem('wordRushPlayerName', name);
     
-        // Update player's name in their root document
+        // Update the player's name in their main profile document
         await setDoc(doc(db, "players", userId), { name: name }, { merge: true });
     
-        // Submit to all-time leaderboard (this is a separate collection, less contention)
+        // Add the score to the "all-time" leaderboard collection. This adds every game played.
         await addDoc(collection(db, "scores"), {
             name: name,
             score: scoreToSave,
-            timestamp: serverTimestamp()
+            timestamp: serverTimestamp(),
+            userId: userId
         });
     
-        // --- FIX: Submit to daily leaderboard using a scalable approach ---
+        // *** CHANGE: This section is updated to add EVERY score to the daily leaderboard ***
         const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-        const dailyScoreDocRef = doc(db, `dailyScores/${today}/entries`, userId);
+        const dailyEntriesRef = collection(db, `dailyScores/${today}/entries`);
     
         try {
-            // Use a transaction to only update if the new score is higher, or create if not exists
-            await runTransaction(db, async (transaction) => {
-                const currentScoreDoc = await transaction.get(dailyScoreDocRef);
-                if (!currentScoreDoc.exists() || currentScoreDoc.data().score < scoreToSave) {
-                    transaction.set(dailyScoreDocRef, {
-                        name: name,
-                        score: scoreToSave,
-                        userId: userId,
-                        timestamp: serverTimestamp()
-                    });
-                }
+            // Instead of updating a single document per user if the score is higher,
+            // we now add a new document for each score submitted. This allows a user 
+            // to have multiple entries on the daily leaderboard.
+            await addDoc(dailyEntriesRef, {
+                name: name,
+                score: scoreToSave,
+                userId: userId,
+                timestamp: serverTimestamp()
             });
         } catch (e) {
             console.error("Failed to submit daily score:", e);
@@ -571,7 +698,7 @@
     
     function createFlyingScore(points, startTile) {
         const el = document.createElement('div'); el.className = 'flying-score';
-        el.style.animation = 'none'; // Use custom animation
+        el.style.animation = 'none'; 
         el.style.position = 'absolute';
         el.textContent = `+${points}`;
         const rect = startTile.getBoundingClientRect();
@@ -598,15 +725,26 @@
                 <div id="how-to-play-container" class="relative bg-slate-100 p-3 rounded-lg mb-4 h-[17rem] overflow-hidden">
                     <!-- Tutorial content will be injected here -->
                 </div>
-                <button id="modal-button" class="bg-green-500 hover:bg-green-600 w-full text-white font-bold py-3 px-6 rounded-lg text-lg shadow-lg transition-transform hover:scale-105 disabled:bg-slate-400 disabled:cursor-wait" disabled>
-                    <div class="flex items-center justify-center">
-                        <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        <span>Loading Game...</span>
-                    </div>
-                </button>
+                <div class="flex flex-col sm:flex-row sm:space-x-4 mb-3"> <!-- Flex container for side-by-side buttons -->
+                    <button id="play-practice-button" class="bg-blue-500 hover:bg-blue-600 flex-1 text-white font-bold py-2 px-4 rounded-lg text-base shadow-lg transition-transform hover:scale-105 mb-3 sm:mb-0 disabled:bg-slate-400 disabled:cursor-wait">
+                        <div class="flex items-center justify-center">
+                            <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            📖<span>Practice</span>
+                        </div>
+                    </button>
+                    <button id="play-game-mode-button" class="bg-green-500 hover:bg-green-600 flex-1 text-white font-bold py-2 px-4 rounded-lg text-base shadow-lg transition-transform hover:scale-105 disabled:bg-slate-400 disabled:cursor-wait">
+                        <div class="flex items-center justify-center">
+                            <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            ⚡<span>Game Mode</span>
+                        </div>
+                    </button>
+                </div>
                 <div class="flex justify-between items-center border-t border-slate-200 pt-3">
                     <div class="font-bold text-slate-600 text-base flex items-center">
                         <span class="text-xl mr-1">🏆</span>Your High: <span id="welcome-high-score" class="ml-1">0</span>
@@ -628,7 +766,10 @@
         document.getElementById('welcome-high-score').textContent = getLocalHighScore();
         document.getElementById('personal-play-count').textContent = localStorage.getItem('wordRushPersonalPlayCount') || 0;
         
+        document.getElementById('play-game-mode-button').onclick = () => startGame(false);
+        document.getElementById('play-practice-button').onclick = () => startGame(true);
         document.getElementById('show-leaderboard-button').onclick = showLeaderboardModal;
+
     }
 
     async function showLeaderboardModal() {
@@ -658,7 +799,7 @@
         const loadingEl = document.getElementById('leaderboard-loading-secondary');
         
         const displayTab = (type) => {
-            if (!db) { // Check if Firebase is not initialized
+            if (!db) { 
                 listEl.innerHTML = `<p class="text-red-500 text-center p-4">Leaderboard is offline.</p>`;
                 if (loadingEl) loadingEl.style.display = 'none';
                 return;
@@ -677,7 +818,7 @@
         dailyTab.onclick = () => displayTab('daily');
         allTimeTab.onclick = () => displayTab('all-time');
         
-        displayTab('daily'); // Default to daily
+        displayTab('daily'); 
 
         document.getElementById('close-leaderboard-button').onclick = () => {
             leaderboardModal.classList.add('hidden');
@@ -701,7 +842,6 @@
         try {
             let highScores = [];
             if (type === 'daily') {
-                // --- FIX: Query the subcollection for daily scores ---
                 const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
                 const entriesRef = collection(db, `dailyScores/${today}/entries`);
                 const q = query(entriesRef, orderBy("score", "desc"), limit(20));
@@ -710,7 +850,7 @@
                     highScores.push(doc.data());
                 });
     
-            } else { // all-time
+            } else { 
                 const q = query(collection(db, "scores"), orderBy("score", "desc"), limit(20));
                 const querySnapshot = await getDocs(q);
                 querySnapshot.forEach((doc) => highScores.push(doc.data()));
@@ -756,8 +896,8 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-5 gap-4 mb-2 text-left"> <!-- Changed to grid-cols-5 -->
-                    <div class="col-span-3"> <!-- Leaderboard column, now takes 3 out of 5 columns -->
+                <div class="grid grid-cols-5 gap-4 mb-2 text-left"> 
+                    <div class="col-span-3"> 
                         <h3 class="text-xl font-bold text-slate-700 mb-2 border-b pb-2">Leaderboard</h3>
                         <div class="flex p-1 bg-slate-100 rounded-lg mb-2">
                             <button id="endgame-daily-tab" class="tab-button flex-1 py-1 px-2 rounded-md font-semibold text-xs transition-colors duration-200">Daily</button>
@@ -768,7 +908,7 @@
                              <ol id="leaderboard-list-endgame" class="space-y-1"></ol>
                         </div>
                     </div>
-                    <div class="col-span-2"> <!-- Your Words column, now takes 2 out of 5 columns -->
+                    <div class="col-span-2"> 
                          <h3 class="text-xl font-bold text-slate-700 mb-2 border-b pb-2">Your Words</h3>
                          <div class="space-y-1 max-h-44 overflow-y-auto pr-2">${foundWordsHTML}</div>
                     </div>
@@ -784,7 +924,7 @@
         const displayTab = (type) => {
             const listEl = document.getElementById('leaderboard-list-endgame');
             const loadingEl = document.getElementById('endgame-leaderboard-loading');
-            if (!db) { // Check if Firebase is not initialized
+            if (!db) { 
                 listEl.innerHTML = `<p class="text-red-500 text-center p-4">Leaderboard is offline.</p>`;
                 if (loadingEl) loadingEl.style.display = 'none';
                 return;
@@ -792,17 +932,18 @@
             if(type === 'daily') {
                 dailyTab.classList.add('active');
                 allTimeTab.classList.remove('active');
+                fetchAndDisplayLeaderboard('daily', listEl, loadingEl);
             } else {
                 allTimeTab.classList.add('active');
                 dailyTab.classList.remove('active');
+                fetchAndDisplayLeaderboard('all-time', listEl, loadingEl);
             }
-            fetchAndDisplayLeaderboard(type, listEl, loadingEl);
         };
 
         dailyTab.onclick = () => displayTab('daily');
         allTimeTab.onclick = () => displayTab('all-time');
         
-        displayTab('daily'); // Default to daily
+        displayTab('daily'); 
             
         document.getElementById('play-again-button').onclick = resetGame;
         const nameInput = document.getElementById('player-name');
@@ -842,7 +983,8 @@
 
     function resizeCanvas() { 
         const r = grid.getBoundingClientRect();
-        lineCanvas.width = r.width; lineCanvas.height = r.height;
+        lineCanvas.width = r.width; 
+        lineCanvas.height = r.height;
         cacheTilePositions();
         drawLines(); 
     }
@@ -921,6 +1063,11 @@
         grid.addEventListener('pointerleave', endInteraction); 
 
         window.addEventListener('resize', resizeCanvas);
+
+        homeButton.addEventListener('click', () => {
+            clearInterval(timerInterval); // Stop any active timer
+            resetGame(); // Return to welcome screen
+        });
     }
 
     // --- Smart Board Generation ---
@@ -967,7 +1114,6 @@
             }
             
             if(!dictionaryTrie && attempts > 0) {
-                 // If dictionary isn't ready, just create a random board and don't validate.
                 return board;
             }
 
@@ -1063,7 +1209,7 @@
         }
     }
     
-    function setupTutorial() {
+        function setupTutorial() {
         const container = document.getElementById('how-to-play-container');
         if (!container) return;
 
@@ -1115,12 +1261,12 @@
                                 <table class="w-full mt-1 text-left text-xs">
                                      <tbody>
                                         <tr>
-                                            <td class="py-0.5 pr-2">4 Letters: <span class="font-medium">+2 pts</span></td>
-                                            <td class="py-0.5">6 Letters: <span class="font-medium">+10 pts</span></td>
+                                            <td class="py-0.5 pr-2">4 Letters: <span class="font-medium">+5 pts</span></td>
+                                            <td class="py-0.5">6 Letters: <span class="font-medium">+25 pts</span></td>
                                         </tr>
                                         <tr>
-                                            <td class="py-0.5 pr-2">5 Letters: <span class="font-medium">+5 pts</span></td>
-                                            <td class="py-0.5">7+ Letters: <span class="font-medium">+20 pts</span></td>
+                                            <td class="py-0.5 pr-2">5 Letters: <span class="font-medium">+10 pts</span></td>
+                                            <td class="py-0.5">7+ Letters: <span class="font-medium">+50 pts</span></td>
                                         </tr>
                                     </tbody>
                                 </table>
