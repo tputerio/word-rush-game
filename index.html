@@ -439,7 +439,8 @@
 
     function submitWord() {
         const word = selectedTiles.map(t => t.dataset.letter).join('');
-        if (word.length >= 3 && wordSet.has(word)) {
+        // Check if word is valid, in dictionary, AND not already found
+        if (word.length >= 3 && wordSet.has(word) && !foundWords.some(fw => fw.word === word)) {
             let baseScore = 0; let wordMultiplier = 1; let timeBonus = 0;
             selectedTiles.forEach(tile => {
                 let letterScore = parseInt(tile.dataset.points);
@@ -825,7 +826,7 @@
     function solveBoard(t){const e=new Set;for(let o=0;o<GRID_SIZE;o++)findWordsRecursive(o,"",[o],e,t);return e}
     function findWordsRecursive(t,e,o,l,n){if(e+=n[t],!dictionaryTrie||!dictionaryTrie.search(e,!0))return;e.length>=3&&dictionaryTrie.search(e)&&l.add(e);const[s,a]=[t%GRID_COLS,Math.floor(t/GRID_COLS)];for(let r=-1;r<=1;r++)for(let i=-1;i<=1;i++){if(0===r&&0===i)continue;const[c,d]=[s+r,a+i];const h=d*GRID_COLS+c;c>=0&&c<GRID_COLS&&d>=0&&d<GRID_COLS&&!o.includes(h)&&findWordsRecursive(h,e,[...o,h],l,n)}}
     
-    async function getPlayerDailyRank(finalScore) {
+    async function getDailyRankForScore(finalScore) {
         if (!db || !userId) return null;
 
         const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
@@ -833,28 +834,28 @@
         const q = query(dailyRef);
         const snapshot = await getDocs(q);
 
-        if (snapshot.empty) return 1; 
-
         const dailyHighScores = new Map();
         snapshot.forEach(doc => {
-            const { userId: entryUserId, name, score } = doc.data();
-            if(!entryUserId || !name || typeof score !== 'number') return;
-            if (!dailyHighScores.has(entryUserId) || score > dailyHighScores.get(entryUserId).score) {
-                dailyHighScores.set(entryUserId, { name, score, userId: entryUserId });
+            const { userId: entryUserId, score } = doc.data();
+            if (entryUserId && typeof score === 'number') {
+                if (!dailyHighScores.has(entryUserId) || score > dailyHighScores.get(entryUserId)) {
+                    dailyHighScores.set(entryUserId, score);
+                }
             }
         });
-        
-        // Ensure the current player's submitted score is in the list for ranking
-        if (!dailyHighScores.has(userId) || finalScore > dailyHighScores.get(userId).score) {
-             const playerDoc = await getDoc(doc(db, "players", userId));
-             const playerName = playerDoc.exists() ? playerDoc.data().name : 'Anonymous';
-             dailyHighScores.set(userId, { name: playerName, score: finalScore, userId: userId });
+
+        const leaderboardScores = Array.from(dailyHighScores.values());
+        const higherScoresCount = leaderboardScores.filter(s => s > finalScore).length;
+        const rank = higherScoresCount + 1;
+
+        // Determine if the score is high enough to be on the displayed leaderboard (e.g., top 10)
+        const leaderboardDisplayLimit = 10;
+        const sortedScores = leaderboardScores.sort((a,b) => b-a);
+        if (sortedScores.length < leaderboardDisplayLimit || finalScore >= sortedScores[leaderboardDisplayLimit-1]) {
+             return rank;
         }
 
-        const highScoresList = [...dailyHighScores.values()].sort((a, b) => b.score - a.score);
-        const rankIndex = highScoresList.findIndex(entry => entry.userId === userId);
-
-        return rankIndex !== -1 ? rankIndex + 1 : null;
+        return null; // Not high enough to rank
     }
 
     async function showEndGameScreen() {
@@ -898,7 +899,7 @@
         
         if (!showSubmitForm) {
             await submitLeaderboardScore(playerName, score);
-            const rank = await getPlayerDailyRank(score);
+            const rank = await getDailyRankForScore(score);
             let message = `Score submitted as <strong>${playerName}</strong>!`;
             if (rank) {
                 message = `You placed <strong>#${rank}</strong> on today's leaderboard!`;
@@ -914,7 +915,7 @@
                 const newPlayerName = nameInput.value.trim(); 
                 if (newPlayerName) { 
                     await submitLeaderboardScore(newPlayerName, score); 
-                    const rank = await getPlayerDailyRank(score);
+                    const rank = await getDailyRankForScore(score);
                     let message = `Score submitted as <strong>${newPlayerName}</strong>!`;
                     if (rank) {
                        message = `You placed <strong>#${rank}</strong> on today's leaderboard!`;
