@@ -632,81 +632,86 @@ async function saveGameHistoryAndStats(finalScore) {
 
 // Replace your entire existing submitLeaderboardScore function with this one
 async function submitLeaderboardScore(name, scoreToSave) {
-    if (!name || !db || !userId || isPracticeMode) return;
-    localStorage.setItem('wordRushPlayerName', name);
+    if (!name || !db || !userId || isPracticeMode) return;
+    localStorage.setItem('wordRushPlayerName', name);
 
-    // Get a reference to the player's document
-    const playerDocRef = doc(db, "players", userId);
-    await setDoc(playerDocRef, { name: name, hasSubmittedName: true }, { merge: true });
+    // Get a reference to the player's document
+    const playerDocRef = doc(db, "players", userId);
+    await setDoc(playerDocRef, { name: name, hasSubmittedName: true }, { merge: true });
 
-    // NEW: Fetch the player's single, authoritative stats document one time.
-    const playerDocSnap = await getDoc(playerDocRef);
-    if (!playerDocSnap.exists()) {
-        console.error("Player document not found for leaderboard submission.");
-        return;
-    }
-    const playerStats = playerDocSnap.data();
-    
-    // --- DAILY LEADERBOARD UPDATE ---
-    const dailyRef = doc(db, "leaderboards", "daily");
-    try {
-        await runTransaction(db, async (transaction) => {
-            const leaderboardDoc = await transaction.get(dailyRef);
-            if (!leaderboardDoc.exists()) return;
+    // NEW: Fetch the player's single, authoritative stats document one time.
+    const playerDocSnap = await getDoc(playerDocRef);
+    if (!playerDocSnap.exists()) {
+        console.error("Player document not found for leaderboard submission.");
+        return;
+    }
+    const playerStats = playerDocSnap.data();
+    
+    // --- DAILY LEADERBOARD UPDATE ---
+    const dailyRef = doc(db, "leaderboards", "daily");
+    try {
+        await runTransaction(db, async (transaction) => {
+            const leaderboardDoc = await transaction.get(dailyRef);
+            if (!leaderboardDoc.exists()) return;
 
-            const currentScores = leaderboardDoc.data().topScores || [];
-            const oldEntry = currentScores.find(s => s.userId === userId);
-            const gameBestWord = foundWords.length > 0 ? foundWords.reduce((best, current) => current.score > best.score ? current : best, { score: 0, word: '' }) : { score: 0, word: '' };
-            
-            const updatedEntry = {
-                userId,
-                name,
-                dailyHighScore: Math.max(oldEntry?.dailyHighScore || 0, scoreToSave),
-                dailyTotalScore: (oldEntry?.dailyTotalScore || 0) + scoreToSave,
-                dailyBestWord: (gameBestWord.score > (oldEntry?.dailyBestWord?.score || 0)) ? gameBestWord : (oldEntry?.dailyBestWord || gameBestWord)
-            };
+            const currentScores = leaderboardDoc.data().topScores || [];
+            // --- FIX: Using 'userID' to match the all-time board ---
+            const oldEntry = currentScores.find(s => s.userID === userId);
+            const gameBestWord = foundWords.length > 0 ? foundWords.reduce((best, current) => current.score > best.score ? current : best, { score: 0, word: '' }) : { score: 0, word: '' };
+            
+            const updatedEntry = {
+                // --- FIX: Using 'userID' to match the all-time board ---
+                userID: userId,
+                name,
+                dailyHighScore: Math.max(oldEntry?.dailyHighScore || 0, scoreToSave),
+                dailyTotalScore: (oldEntry?.dailyTotalScore || 0) + scoreToSave,
+                dailyBestWord: (gameBestWord.score > (oldEntry?.dailyBestWord?.score || 0)) ? gameBestWord : (oldEntry?.dailyBestWord || gameBestWord)
+            };
 
-            const newTopScores = [...currentScores.filter(s => s.userId !== userId), updatedEntry]
-                .sort((a,b) => b.dailyHighScore - a.dailyHighScore)
-                .slice(0,10);
-            transaction.update(dailyRef, { topScores: newTopScores });
-        });
-    } catch (e) { console.error("Failed to update daily leaderboard:", e); }
+            // --- FIX: Using 'userID' to match the all-time board ---
+            const newTopScores = [...currentScores.filter(s => s.userID !== userId), updatedEntry]
+                .sort((a,b) => b.dailyHighScore - a.dailyHighScore)
+                .slice(0,10);
+            transaction.update(dailyRef, { topScores: newTopScores });
+        });
+    } catch (e) { console.error("Failed to update daily leaderboard:", e); }
 
-    // --- ALL-TIME LEADERBOARD UPDATE (Now uses the authoritative player stats) ---
-    const allTimeRef = doc(db, "leaderboards", "allTime");
-    try {
-        await runTransaction(db, async (transaction) => {
-            const allTimeDoc = await transaction.get(allTimeRef);
-            let data = allTimeDoc.exists() ? allTimeDoc.data() : { topByHighScore: [], topByTotalPoints: [], topByBestWord: [] };
+    // --- ALL-TIME LEADERBOARD UPDATE (Now uses the authoritative player stats) ---
+    const allTimeRef = doc(db, "leaderboards", "allTime");
+    try {
+        await runTransaction(db, async (transaction) => {
+            const allTimeDoc = await transaction.get(allTimeRef);
+            let data = allTimeDoc.exists() ? allTimeDoc.data() : { topByHighScore: [], topByTotalPoints: [], topByBestWord: [] };
 
-            // Helper function to update a list if the new score qualifies
-            const updateCategory = (list, newEntry, sortKey, nestedKey = null) => {
-                const lastPlaceScore = list.length < 10 ? 0 : (nestedKey ? list[9][sortKey][nestedKey] : list[9][sortKey] || 0);
-                const playerBestScore = nestedKey ? newEntry[sortKey][nestedKey] : newEntry[sortKey];
+            // Helper function to update a list if the new score qualifies
+            const updateCategory = (list, newEntry, sortKey, nestedKey = null) => {
+                // --- FIX: Logic to correctly update player metadata (like name) ---
+                const isAlreadyOnList = list.some(e => e.userID === userId);
+                const lastPlaceScore = list.length < 10 ? 0 : (nestedKey ? list[9][sortKey][nestedKey] : list[9][sortKey] || 0);
+                const playerBestScore = nestedKey ? newEntry[sortKey][nestedKey] : newEntry[sortKey];
 
-                // Only update if player's score is better than last place, or if they are not on the list yet
-                if (playerBestScore > lastPlaceScore || !list.some(e => e.userID === userId)) {
-                    let updatedList = list.filter(u => u.userID !== userId);
-                    updatedList.push(newEntry);
-                    updatedList.sort((a, b) => {
-                        const valA = nestedKey ? (a[sortKey] || {})[nestedKey] || 0 : a[sortKey] || 0;
-                        const valB = nestedKey ? (b[sortKey] || {})[nestedKey] || 0 : b[sortKey] || 0;
-                        return valB - valA;
-                    });
-                    return updatedList.slice(0, 10);
-                }
-                return list; // Return original list if no update is needed
-            };
-            
-            // Update each category using the correct data from the player's own document
-            data.topByHighScore = updateCategory(data.topByHighScore, { userID: userId, name, score: playerStats.highScore }, 'score');
-            data.topByTotalPoints = updateCategory(data.topByTotalPoints, { userID: userId, name, totalPoints: playerStats.totalPoints }, 'totalPoints');
-            data.topByBestWord = updateCategory(data.topByBestWord, { userID: userId, name, bestWord: playerStats.bestWord }, 'bestWord', 'score');
-            
-            transaction.set(allTimeRef, data);
-        });
-    } catch (e) { console.error("Failed to update all-time leaderboard:", e); }
+                // Update if player is already on the list (to refresh metadata) OR if their score qualifies them for the list.
+                if (isAlreadyOnList || playerBestScore > lastPlaceScore) {
+                    let updatedList = list.filter(u => u.userID !== userId);
+                    updatedList.push(newEntry);
+                    updatedList.sort((a, b) => {
+                        const valA = nestedKey ? (a[sortKey] || {})[nestedKey] || 0 : a[sortKey] || 0;
+                        const valB = nestedKey ? (b[sortKey] || {})[nestedKey] || 0 : b[sortKey] || 0;
+                        return valB - valA;
+                    });
+                    return updatedList.slice(0, 10);
+                }
+                return list; // Return original list if no update is needed
+            };
+            
+            // Update each category using the correct data from the player's own document
+            data.topByHighScore = updateCategory(data.topByHighScore, { userID: userId, name, score: playerStats.highScore }, 'score');
+            data.topByTotalPoints = updateCategory(data.topByTotalPoints, { userID: userId, name, totalPoints: playerStats.totalPoints }, 'totalPoints');
+            data.topByBestWord = updateCategory(data.topByBestWord, { userID: userId, name, bestWord: playerStats.bestWord }, 'bestWord', 'score');
+            
+            transaction.set(allTimeRef, data);
+        });
+    } catch (e) { console.error("Failed to update all-time leaderboard:", e); }
 }
     
     function updateScoreDisplay() {
@@ -960,105 +965,108 @@ function updateCurrentWord() { currentWordLettersEl.innerHTML = selectedTiles.ma
     };
 }
     
+// Replace your existing fetchAndDisplayLeaderboard function with this one
 async function fetchAndDisplayLeaderboard(type, listElement, loadingElement) {
-    if (!listElement) return;
-    if (loadingElement) loadingElement.style.display = 'block';
-    listElement.innerHTML = '';
-    if (!db) {
-        listElement.innerHTML = `<p class="text-red-500 text-center p-4">Leaderboard is offline.</p>`;
-        if (loadingElement) loadingElement.style.display = 'none';
-        return;
-    }
+    if (!listElement) return;
+    if (loadingElement) loadingElement.style.display = 'block';
+    listElement.innerHTML = '';
+    if (!db) {
+        listElement.innerHTML = `<p class="text-red-500 text-center p-4">Leaderboard is offline.</p>`;
+        if (loadingElement) loadingElement.style.display = 'none';
+        return;
+    }
 
-    try {
-        let html = '';
+    try {
+        let html = '';
+        const icons = {
+            highScore: '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 0 1 3 3h-15a3 3 0 0 1 3-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 0 1-.982-3.172M9.497 14.25a7.454 7.454 0 0 0 .981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 0 0 7.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721C7.456 2.41 9.71 2.25 12 2.25c2.291 0 4.545.16 6.75.47v1.516M7.73 9.728a6.726 6.726 0 0 0 2.748 1.35m8.272-6.842V4.5c0 2.108-.966 3.99-2.48 5.228m2.48-5.492a46.32 46.32 0 0 1 2.916.52 6.003 6.003 0 0 1-5.395 4.972m0 0a6.726 6.726 0 0 1-2.749 1.35m0 0a6.772 6.772 0 0 1-3.044 0" /></svg>',
+            totalPoints: '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3m8.5-3 1 3m0 0 .5 1.5m-.5-1.5h-9.5m0 0-.5 1.5m.75-9 3-3 2.148 2.148A12.061 12.061 0 0 1 16.5 7.605" /></svg>',
+            bestWord: '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" /></svg>'
+        };
 
-        if (type === 'all-time') {
-            const leaderboardRef = doc(db, "leaderboards", "allTime");
-            const docSnap = await getDoc(leaderboardRef);
+        if (type === 'all-time') {
+            const leaderboardRef = doc(db, "leaderboards", "allTime");
+            const docSnap = await getDoc(leaderboardRef);
 
-            if (!docSnap.exists() || !docSnap.data()) {
-                html = `<p class="text-slate-500 text-center text-sm p-2">All-Time leaderboard is not available.</p>`;
-            } else {
-                const data = docSnap.data();
-                const categories = [
-                    { key: 'topByHighScore',   title: '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 0 1 3 3h-15a3 3 0 0 1 3-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 0 1-.982-3.172M9.497 14.25a7.454 7.454 0 0 0 .981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 0 0 7.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721C7.456 2.41 9.71 2.25 12 2.25c2.291 0 4.545.16 6.75.47v1.516M7.73 9.728a6.726 6.726 0 0 0 2.748 1.35m8.272-6.842V4.5c0 2.108-.966 3.99-2.48 5.228m2.48-5.492a46.32 46.32 0 0 1 2.916.52 6.003 6.003 0 0 1-5.395 4.972m0 0a6.726 6.726 0 0 1-2.749 1.35m0 0a6.772 6.772 0 0 1-3.044 0" /></svg> High Score' },
-                    { key: 'topByTotalPoints', title: '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3m8.5-3 1 3m0 0 .5 1.5m-.5-1.5h-9.5m0 0-.5 1.5m.75-9 3-3 2.148 2.148A12.061 12.061 0 0 1 16.5 7.605" /></svg> Total Points' },
-                    { key: 'topByBestWord',    title: '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" /></svg> Best Word' }
-                ];
+            if (!docSnap.exists() || !docSnap.data()) {
+                html = `<p class="text-slate-500 text-center text-sm p-2">All-Time leaderboard is not available.</p>`;
+            } else {
+                const data = docSnap.data();
+                const categories = [
+                    { key: 'topByHighScore',   title: `${icons.highScore} High Score` },
+                    { key: 'topByTotalPoints', title: `${icons.totalPoints} Total Points` },
+                    { key: 'topByBestWord',    title: `${icons.bestWord} Best Word` }
+                ];
 
-                for (const cat of categories) {
-                    html += `<h3 class="text-lg font-bold text-slate-800 my-2 sticky top-0 bg-white py-1 flex items-center gap-2">${cat.title}</h3>`;
-                    
-                    const players = data[cat.key] || [];
+                for (const cat of categories) {
+                    html += `<h3 class="text-lg font-bold text-slate-800 my-2 sticky top-0 bg-white py-1 flex items-center gap-2">${cat.title}</h3>`;
+                    const players = data[cat.key] || [];
 
-                    if (players.length === 0) {
-                        html += `<p class="text-slate-500 text-center text-sm p-2">No players in this category yet.</p>`;
-                    } else {
-                        const scores = players.map((player, i) => {
-                            let value;
-                            
-                            if (cat.key === 'topByBestWord') {
-                                value = player.bestWord && player.bestWord.word ? `${player.bestWord.word} (${player.bestWord.score})` : 'N/A';
-                            } else if (cat.key === 'topByTotalPoints') {
-                                value = player.totalPoints?.toLocaleString() || 0;
-                            } else {
-                                value = player.score?.toLocaleString() || 0;
-                            }
+                    if (players.length === 0) {
+                        html += `<p class="text-slate-500 text-center text-sm p-2">No players yet.</p>`;
+                    } else {
+                        const scores = players.map((player, i) => {
+                            let value;
+                            if (cat.key === 'topByBestWord') {
+                                value = player.bestWord && player.bestWord.word ? `${player.bestWord.word.toUpperCase()} (${player.bestWord.score})` : 'N/A';
+                            } else if (cat.key === 'topByTotalPoints') {
+                                value = player.totalPoints?.toLocaleString() || 0;
+                            } else {
+                                value = player.score?.toLocaleString() || 0;
+                            }
+                            const isCurrentUser = player.userID === userId;
+                            return `<li class="flex items-center p-2 rounded-lg ${isCurrentUser ? 'bg-blue-100' : (i % 2 === 0 ? 'bg-slate-50' : '')}"><span class="font-bold text-slate-500 w-8 text-center">${i + 1}.</span><span class="font-semibold text-slate-800 flex-grow truncate mr-4">${player.name}</span><span class="font-bold text-green-500">${value}</span></li>`;
+                        }).join('');
+                        html += `<ol class="space-y-1">${scores}</ol>`;
+                    }
+                }
+            }
+        } else { // This is the 'daily' logic
+            const leaderboardRef = doc(db, "leaderboards", "daily");
+            const docSnap = await getDoc(leaderboardRef);
 
-                            return `<li class="flex items-center p-2 rounded-lg ${i % 2 === 0 ? 'bg-slate-50' : ''}"><span class="font-bold text-slate-500 w-8 text-center">${i + 1}.</span><span class="font-semibold text-slate-800 flex-grow truncate mr-4">${player.name}</span><span class="font-bold text-green-500">${value}</span></li>`;
-                        }).join('');
-                        html += `<ol class="space-y-1">${scores}</ol>`;
-                    }
-                }
-            }
-        } else { // This is the 'daily' logic
-            const leaderboardRef = doc(db, "leaderboards", "daily");
-            const docSnap = await getDoc(leaderboardRef);
+            if (!docSnap.exists() || !docSnap.data().topScores || docSnap.data().topScores.length === 0) {
+                html += `<p class="text-slate-500 text-center text-sm p-2">No scores yet today. Be the first!</p>`;
+            } else {
+                const dailyPlayers = docSnap.data().topScores;
+                // --- FIX: Correctly render daily categories like the all-time board ---
+                const categories = [
+                    { key: 'dailyHighScore',  title: `${icons.highScore} High Score` },
+                    { key: 'dailyTotalScore', title: `${icons.totalPoints} Total Points` },
+                    { key: 'dailyBestWord',   title: `${icons.bestWord} Best Word` }
+                ];
 
-            if (!docSnap.exists() || !docSnap.data().topScores || docSnap.data().topScores.length === 0) {
-                html += `<p class="text-slate-500 text-center text-sm p-2">No scores yet today. Be the first!</p>`;
-            } else {
-                const dailyPlayers = docSnap.data().topScores;
-                
-                // --- THIS IS THE CORRECTED PART ---
-                const categories = [
-                    { key: 'dailyHighScore',  title: '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 0 1 3 3h-15a3 3 0 0 1 3-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 0 1-.982-3.172M9.497 14.25a7.454 7.454 0 0 0 .981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 0 0 7.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721C7.456 2.41 9.71 2.25 12 2.25c2.291 0 4.545.16 6.75.47v1.516M7.73 9.728a6.726 6.726 0 0 0 2.748 1.35m8.272-6.842V4.5c0 2.108-.966 3.99-2.48 5.228m2.48-5.492a46.32 46.32 0 0 1 2.916.52 6.003 6.003 0 0 1-5.395 4.972m0 0a6.726 6.726 0 0 1-2.749 1.35m0 0a6.772 6.772 0 0 1-3.044 0" /></svg> High Score' },
-                    { key: 'dailyTotalScore', title: '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3m8.5-3 1 3m0 0 .5 1.5m-.5-1.5h-9.5m0 0-.5 1.5m.75-9 3-3 2.148 2.148A12.061 12.061 0 0 1 16.5 7.605" /></svg> Total Points' },
-                    { key: 'dailyBestWord',   title: '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" /></svg> Best Word' }
-                ];
-                // --- END OF CORRECTION ---
+                for (const cat of categories) {
+                    html += `<h3 class="text-lg font-bold text-slate-800 my-2 sticky top-0 bg-white py-1 flex items-center gap-2">${cat.title}</h3>`;
+                    
+                    const sortedPlayers = [...dailyPlayers].sort((a, b) => {
+                        if (cat.key === 'dailyBestWord') {
+                            return (b.dailyBestWord?.score || 0) - (a.dailyBestWord?.score || 0);
+                        }
+                        return (b[cat.key] || 0) - (a[cat.key] || 0);
+                    });
 
-                for (const cat of categories) {
-                    html += `<h3 class="text-lg font-bold text-slate-800 my-2 sticky top-0 bg-white py-1 flex items-center gap-2">${cat.title}</h3>`;
-                    
-                    const sortedPlayers = [...dailyPlayers].sort((a, b) => {
-                        if (cat.key === 'dailyBestWord') {
-                            return (b.dailyBestWord?.score || 0) - (a.dailyBestWord?.score || 0);
-                        }
-                        return (b[cat.key] || 0) - (a[cat.key] || 0);
-                    });
-
-                    const scores = sortedPlayers.map((player, i) => {
-                        let value;
-                        if (cat.key === 'dailyBestWord') {
-                            value = player.dailyBestWord && player.dailyBestWord.word ? `${player.dailyBestWord.word} (${player.dailyBestWord.score})` : 'N/A';
-                        } else {
-                            value = player[cat.key]?.toLocaleString() || 0;
-                        }
-                        return `<li class="flex items-center p-2 rounded-lg ${i % 2 === 0 ? 'bg-slate-50' : ''}"><span class="font-bold text-slate-500 w-8 text-center">${i + 1}.</span><span class="font-semibold text-slate-800 flex-grow truncate mr-4">${player.name}</span><span class="font-bold text-green-500">${value}</span></li>`;
-                    }).join('');
-                    html += `<ol class="space-y-1">${scores}</ol>`;
-                }
-            }
-        }
-        listElement.innerHTML = html;
-    } catch (e) {
-        console.error(`Could not fetch ${type} leaderboard`, e);
-        listElement.innerHTML = `<p class="text-red-500 text-center p-4">Could not load leaderboard.</p>`;
-    } finally {
-        if (loadingElement) loadingElement.style.display = 'none';
-    }
+                    const scores = sortedPlayers.map((player, i) => {
+                        let value;
+                        if (cat.key === 'dailyBestWord') {
+                            value = player.dailyBestWord && player.dailyBestWord.word ? `${player.dailyBestWord.word.toUpperCase()} (${player.dailyBestWord.score})` : 'N/A';
+                        } else {
+                            value = player[cat.key]?.toLocaleString() || 0;
+                        }
+                        const isCurrentUser = player.userID === userId;
+                        return `<li class="flex items-center p-2 rounded-lg ${isCurrentUser ? 'bg-blue-100' : (i % 2 === 0 ? 'bg-slate-50' : '')}"><span class="font-bold text-slate-500 w-8 text-center">${i + 1}.</span><span class="font-semibold text-slate-800 flex-grow truncate mr-4">${player.name}</span><span class="font-bold text-green-500">${value}</span></li>`;
+                    }).join('');
+                    html += `<ol class="space-y-1">${scores}</ol>`;
+                }
+            }
+        }
+        listElement.innerHTML = html;
+    } catch (e) {
+        console.error(`Could not fetch ${type} leaderboard`, e);
+        listElement.innerHTML = `<p class="text-red-500 text-center p-4">Could not load leaderboard.</p>`;
+    } finally {
+        if (loadingElement) loadingElement.style.display = 'none';
+    }
 }
     
     
@@ -1136,119 +1144,118 @@ async function shareScore() {
     }
 }
 
-    // Replace your existing showEndGameScreen function with this one
+// Replace your existing showEndGameScreen function with this one.
 async function showEndGameScreen(didBeatDailyHighScore) {
-    gameContentEl.classList.add('blurred');
-    endGameModal.classList.remove('hidden');
-    triggerEndGameConfetti();
+    gameContentEl.classList.add('blurred');
+    endGameModal.classList.remove('hidden');
+    triggerEndGameConfetti();
 
-    const sortedWords = [...foundWords].sort((a,b)=>b.score-a.score);
-    const foundWordsHTML = sortedWords.length ? sortedWords.map(fw => `<div class="flex justify-between text-sm p-1 ${sortedWords.indexOf(fw) % 2 === 0 ? 'bg-slate-50' : ''} rounded"><span class="font-semibold">${fw.word.toUpperCase()}</span><span>+${fw.score}</span></div>`).join('') : '<p class="text-sm text-slate-500 text-center py-4">No words found.</p>';
+    const sortedWords = [...foundWords].sort((a,b)=>b.score-a.score);
+    const foundWordsHTML = sortedWords.length ? sortedWords.map(fw => `<div class="flex justify-between text-sm p-1 ${sortedWords.indexOf(fw) % 2 === 0 ? 'bg-slate-50' : ''} rounded"><span class="font-semibold">${fw.word.toUpperCase()}</span><span>+${fw.score}</span></div>`).join('') : '<p class="text-sm text-slate-500 text-center py-4">No words found.</p>';
 
-    // --- NEW: Updated HTML layout for the end-game screen ---
-    endGameModalContent.innerHTML = `<div class="bg-white rounded-2xl shadow-2xl p-6 text-center w-full max-w-sm mx-auto modal-enter">
-            <h2 class="text-3xl font-black text-green-500">Great Game!</h2>
-            <p class="text-slate-600 mb-2">Your final score is:</p>
-            <p class="text-6xl font-black text-slate-800 mb-3">${score}</p>
+    // --- This HTML is restored from your original code, with the Share Link moved ---
+    endGameModalContent.innerHTML = `<div class="bg-white rounded-2xl shadow-2xl p-6 text-center w-full max-w-sm mx-auto modal-enter">
+        <h2 class="text-3xl font-black text-green-500">Great Game!</h2>
+        <p class="text-slate-600 mb-2">Your final score is:</p>
+        <p class="text-6xl font-black text-slate-800 mb-3">${score}</p>
+        <div id="submission-container" class="h-8 flex items-center justify-center"></div>
+        <hr class="my-4">
+        <div class="text-left w-full">
+            <div class="flex justify-between items-baseline mb-2">
+                <h3 class="text-xl font-bold text-slate-700">Your Words (${foundWords.length})</h3>
+                <button id="endgame-stats-button" class="flex items-center text-base font-bold text-blue-500 hover:text-blue-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5H21A7.5 7.5 0 0 0 13.5 3v7.5Z" /></svg>
+                    <span class="ml-1">Your Stats</span>
+                </button>
+            </div>
+            <div class="space-y-1 max-h-48 overflow-y-auto pr-2">${foundWordsHTML}</div>
+        </div>
+        <div id="share-link-container" class="h-10 flex items-center justify-center"></div>
+        <div class="flex space-x-2 mt-3">
+            <button id="endgame-leaderboard-button" class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-3 px-4 rounded-lg text-base flex-1">Leaderboard</button>
+            <button id="play-again-button" class="bg-green-500 hover:bg-green-600 w-full text-white font-bold py-3 px-4 rounded-lg text-base flex-1">Play Again</button>
+        </div>
+    </div>`;
 
-            <div id="submission-container" class="h-8 flex items-center justify-center"></div>
-            
-            <div id="share-link-container" class="h-8 flex items-center justify-center"></div>
+    document.getElementById('play-again-button').onclick = resetGame;
+    document.getElementById('endgame-leaderboard-button').onclick = showLeaderboardModal;
+    document.getElementById('endgame-stats-button').onclick = showStatsModal;
+    
+    const shareLinkContainer = document.getElementById('share-link-container');
+    if (navigator.share || navigator.clipboard) {
+        const shareIcon = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-5 mr-1"><path stroke-linecap="round" stroke-linejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" /></svg>`;
+        shareLinkContainer.innerHTML = `<a href="#" id="share-score-link" class="flex items-center text-blue-500 hover:underline font-bold">${shareIcon} Share Score</a>`;
+        document.getElementById('share-score-link').onclick = (e) => {
+            e.preventDefault();
+            shareScore();
+        };
+    }
 
-            <hr class="my-4">
+    const submissionContainer = document.getElementById('submission-container');
+    submissionContainer.innerHTML = `<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900"></div>`;
 
-            <div class="text-left w-full">
-                <div class="flex justify-between items-baseline mb-2">
-                    <h3 class="text-xl font-bold text-slate-700">Your Words (${foundWords.length})</h3>
-                    <button id="endgame-stats-button" class="flex items-center text-base font-bold text-blue-500 hover:text-blue-600">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5H21A7.5 7.5 0 0 0 13.5 3v7.5Z" /></svg>
-                        <span class="ml-1">Your Stats</span>
-                    </button>
-                </div>
-                <div class="space-y-1 max-h-48 overflow-y-auto pr-2">${foundWordsHTML}</div>
-            </div>
-            <div class="flex space-x-2 mt-6">
-                <button id="endgame-leaderboard-button" class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-3 px-4 rounded-lg text-base flex-1">Leaderboard</button>
-                <button id="play-again-button" class="bg-green-500 hover:bg-green-600 w-full text-white font-bold py-3 px-4 rounded-lg text-base flex-1">Play Again</button>
-            </div>
-        </div>`;
+    let playerName = null;
+    let showSubmitForm = true;
 
-    // --- Attach event listeners to the buttons ---
-    document.getElementById('play-again-button').onclick = resetGame;
-    document.getElementById('endgame-leaderboard-button').onclick = showLeaderboardModal;
-    document.getElementById('endgame-stats-button').onclick = showStatsModal;
-    
-    // --- Logic to create and attach the share link ---
-    const shareLinkContainer = document.getElementById('share-link-container');
-    if (navigator.share || navigator.clipboard) {
-        const shareIcon = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-5 mr-1"><path stroke-linecap="round" stroke-linejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" /></svg>`;
-        shareLinkContainer.innerHTML = `<a href="#" id="share-score-link" class="flex items-center text-blue-500 hover:underline font-bold">${shareIcon} Share Score</a>`;
-        document.getElementById('share-score-link').onclick = (e) => {
-            e.preventDefault();
-            shareScore();
-        };
-    }
+    if (db && userId) {
+        const playerDoc = await getDoc(doc(db, "players", userId));
+        if (playerDoc.exists() && playerDoc.data().name && playerDoc.data().name !== 'Anonymous') {
+            playerName = playerDoc.data().name;
+            showSubmitForm = false;
+        }
+    }
+    
+    const processSubmission = async (name, currentScore) => {
+        try {
+            await submitLeaderboardScore(name, currentScore);
+        } catch (e) {
+            console.error("Submission failed:", e);
+            submissionContainer.innerHTML = `<div class="text-red-500 font-bold">Error saving score!</div>`;
+            return;
+        }
 
-    // --- The submission status logic remains the same ---
-    const submissionContainer = document.getElementById('submission-container');
-    submissionContainer.innerHTML = `<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900"></div>`;
+        let finalMessageHtml = '';
+        if (didBeatDailyHighScore) {
+            const leaderboardRef = doc(db, "leaderboards", "daily");
+            const leaderboardDoc = await getDoc(leaderboardRef);
+            let rank = null;
+            if (leaderboardDoc.exists()) {
+                const topScores = leaderboardDoc.data().topScores || [];
+                const sorted = [...topScores].sort((a, b) => (b.dailyHighScore || 0) - (a.dailyHighScore || 0));
+                rank = sorted.findIndex(entry => entry.userID === userId) + 1;
+            }
+            const trophyIcon = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3m8.5-3 1 3m0 0 .5 1.5m-.5-1.5h-9.5m0 0-.5 1.5m.75-9 3-3 2.148 2.148A12.061 12.061 0 0 1 16.5 7.605" /></svg>`;
+            let leaderboardMessage = `New daily high: <strong>${currentScore}</strong>!`; 
+            if (rank && rank <= 10) {
+                leaderboardMessage = `You placed&nbsp;<strong>#${rank}</strong> on today's leaderboard!`;
+            }
+            finalMessageHtml = `<div class="flex items-center justify-center text-green-600 font-bold pop-in whitespace-nowrap">${trophyIcon} ${leaderboardMessage}</div>`;
+        } else {
+            const checkIcon = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>`;
+            const standardMessage = `Score submitted as&nbsp;<strong>${name}</strong>!`;
+            finalMessageHtml = `<div class="flex items-center justify-center text-green-600 font-bold pop-in whitespace-nowrap">${checkIcon} ${standardMessage}</div>`;
+        }
+        submissionContainer.innerHTML = finalMessageHtml;
+    };
 
-    let playerName = null;
-    let showSubmitForm = true;
-
-    if (db && userId) {
-        const playerDoc = await getDoc(doc(db, "players", userId));
-        if (playerDoc.exists() && playerDoc.data().name && playerDoc.data().name !== 'Anonymous') {
-            playerName = playerDoc.data().name;
-            showSubmitForm = false;
-        }
-    }
-    
-    const processSubmission = async (name, currentScore) => {
-        let finalMessageHtml = '';
-        if (didBeatDailyHighScore) {
-            await submitLeaderboardScore(name, currentScore);
-            const leaderboardRef = doc(db, "leaderboards", "daily");
-            const leaderboardDoc = await getDoc(leaderboardRef);
-            let rank = null;
-            if (leaderboardDoc.exists()) {
-                const topScores = leaderboardDoc.data().topScores || [];
-                const sorted = [...topScores].sort((a, b) => (b.dailyHighScore || 0) - (a.dailyHighScore || 0));
-                rank = sorted.findIndex(entry => entry.userId === userId) + 1;
-            }
-            const trophyIcon = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3m8.5-3 1 3m0 0 .5 1.5m-.5-1.5h-9.5m0 0-.5 1.5m.75-9 3-3 2.148 2.148A12.061 12.061 0 0 1 16.5 7.605" /></svg>`;
-            let leaderboardMessage = `New daily high: <strong>${currentScore}</strong>!`; 
-            if (rank && rank <= 10) {
-                leaderboardMessage = `You placed&nbsp;<strong>#${rank}</strong> on today's leaderboard!`;
-            }
-            finalMessageHtml = `<div class="flex items-center justify-center text-green-600 font-bold pop-in whitespace-nowrap">${trophyIcon} ${leaderboardMessage}</div>`;
-        } else {
-            const checkIcon = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>`;
-            const standardMessage = `Score submitted as&nbsp;<strong>${name}</strong>!`;
-            finalMessageHtml = `<div class="flex items-center justify-center text-green-600 font-bold pop-in whitespace-nowrap">${checkIcon} ${standardMessage}</div>`;
-        }
-        submissionContainer.innerHTML = finalMessageHtml;
-    };
-
-    if (!showSubmitForm) {
-        processSubmission(playerName, score);
-    } else {
-        submissionContainer.innerHTML = `<div id="submit-score-form" class="w-full"><div class="flex space-x-2"><input type="text" id="player-name" placeholder="Enter your name" class="w-full px-3 py-2 border border-slate-300 rounded-lg" maxlength="10"><button id="submit-global-score" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg">Submit</button></div></div>`;
-        const nameInput = document.getElementById('player-name');
-        nameInput.value = localStorage.getItem('wordRushPlayerName') || '';
-        document.getElementById('submit-global-score').onclick = async (e) => {
-            const button = e.target;
-            button.disabled = true; button.textContent = '...';
-            const newPlayerName = nameInput.value.trim();
-            if (newPlayerName) {
-                await processSubmission(newPlayerName, score);
-            } else {
-                button.disabled = false; button.textContent = 'Submit';
-            }
-        };
-    }
+    if (!showSubmitForm) {
+        await processSubmission(playerName, score);
+    } else {
+        submissionContainer.innerHTML = `<div id="submit-score-form" class="w-full"><div class="flex space-x-2"><input type="text" id="player-name" placeholder="Enter your name" class="w-full px-3 py-2 border border-slate-300 rounded-lg" maxlength="10"><button id="submit-global-score" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg">Submit</button></div></div>`;
+        const nameInput = document.getElementById('player-name');
+        nameInput.value = localStorage.getItem('wordRushPlayerName') || '';
+        document.getElementById('submit-global-score').onclick = async (e) => {
+            const button = e.target;
+            button.disabled = true; button.textContent = '...';
+            const newPlayerName = nameInput.value.trim();
+            if (newPlayerName) {
+                await processSubmission(newPlayerName, score);
+            } else {
+                button.disabled = false; button.textContent = 'Submit';
+            }
+        };
+    }
 }
-
     
     function setupTutorial() {
         const container = document.getElementById('how-to-play-container'); if (!container) return;
