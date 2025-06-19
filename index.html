@@ -6,14 +6,14 @@
     <title>Word Worm</title>
     <meta property="og:title" content="Word Worm - The Fast-Paced Word Finding Game!">
     <meta property="og:description" content="Race against the clock to find words from a jumbled grid. Challenge friends and climb the daily leaderboards!">
-    <meta property="og:image" content="https://raw.githubusercontent.com/tputerio/word-rush-game/main/word-worm-logo.png">
+    <meta property="og:image" content="assets/word-worm-logo.png">
     <meta property="og:url" content="https://wordwormgame.com">
     <meta property="og:type" content="website">
     
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Word Worm - The Fast-Paced Word Finding Game!">
     <meta name="twitter:description" content="Race against the clock to find words from a jumbled grid. Challenge friends and climb the daily leaderboards!">
-    <meta name="twitter:image" content="https://raw.githubusercontent.com/tputerio/word-rush-game/main/word-worm-logo.png">
+    <meta name="twitter:image" content="assets/word-worm-logo.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
     <style>
@@ -134,7 +134,7 @@
         <div class="flex items-center justify-between mb-3">
             <div class="flex-grow flex items-center justify-center">
                 <h1 class="text-3xl font-black text-slate-800 tracking-tighter flex items-center justify-center">
-                    <img src="https://raw.githubusercontent.com/tputerio/word-rush-game/main/word-worm-logo.png" alt="Word Worm Logo" class="w-9 h-9 mr-2">
+                    <img src="assets/word-worm-logo.png" alt="Word Worm Logo" class="w-9 h-9 mr-2">
                     <span>Word Worm</span>
                 </h1>
             </div>
@@ -299,7 +299,7 @@
             }
             
             try {
-                const res = await fetch('https://raw.githubusercontent.com/tputerio/word-rush-game/main/dictionary.json');
+                const res = await fetch('assets/dictionary.json');
                 if (!res.ok) throw new Error(`Dictionary download failed: ${res.statusText}`);
                 const trieData = await res.json();
                 dictionaryTrie = new Trie(trieData);
