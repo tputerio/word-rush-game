@@ -4,6 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Word Worm</title>
+    <meta property="og:title" content="Word Worm - The Fast-Paced Word Finding Game!">
+    <meta property="og:description" content="Race against the clock to find words from a jumbled grid. Challenge friends and climb the daily leaderboards!">
+    <meta property="og:image" content="https://raw.githubusercontent.com/tputerio/word-rush-game/main/word-worm-logo.png">
+    <meta property="og:url" content="https://wordwormgame.com">
+    <meta property="og:type" content="website">
+    
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Word Worm - The Fast-Paced Word Finding Game!">
+    <meta name="twitter:description" content="Race against the clock to find words from a jumbled grid. Challenge friends and climb the daily leaderboards!">
+    <meta name="twitter:image" content="https://raw.githubusercontent.com/tputerio/word-rush-game/main/word-worm-logo.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
     <style>
@@ -1215,7 +1225,7 @@
         if (bestWordFound && bestWordFound.word) {
             shareText += `My best word was ${bestWordFound.word.toUpperCase()} for ${bestWordFound.score} points!\n\n`;
         }
-        const gameUrl = 'https://tputerio.github.io/word-rush-game/';
+        const gameUrl = 'https://wordwormgame.com/';
         shareText += `Think you can beat me? Play now:\n${gameUrl}`;
         const shareData = { title: 'Word Worm', text: shareText };
         if (navigator.share) {
